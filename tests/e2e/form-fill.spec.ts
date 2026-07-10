@@ -1,13 +1,16 @@
 import { expect, test } from './fixtures';
 import { openObserver, scanFromPanel } from './helpers';
-
-const fixtureUrl = 'http://127.0.0.1:4173/customer-create.html';
+import { customerFixtureUrl } from './constants';
 
 test('fills editable fields with per-field receipts and real page writes', async ({
   context,
   extensionId,
 }) => {
-  const { panel, target } = await openObserver(context, extensionId, fixtureUrl);
+  const { panel, target } = await openObserver(
+    context,
+    extensionId,
+    customerFixtureUrl,
+  );
 
   await expect(panel.getByTestId('scan-status')).toHaveAttribute(
     'data-phase',
@@ -46,7 +49,11 @@ test('rejects fills against a stale snapshot after the page reloads', async ({
   context,
   extensionId,
 }) => {
-  const { panel, target } = await openObserver(context, extensionId, fixtureUrl);
+  const { panel, target } = await openObserver(
+    context,
+    extensionId,
+    customerFixtureUrl,
+  );
 
   await expect(panel.getByTestId('scan-status')).toHaveAttribute(
     'data-phase',

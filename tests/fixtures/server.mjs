@@ -34,9 +34,123 @@ export function createFixtureServer() {
       return;
     }
 
+    if (
+      requestUrl.pathname === '/mock-openai/v1/chat/completions' &&
+      request.method === 'POST'
+    ) {
+      void respondWithMockCompletion(request, response);
+      return;
+    }
+
     response.writeHead(404, { 'content-type': 'text/plain' });
     response.end('not found');
   });
+}
+
+async function respondWithMockCompletion(request, response) {
+  try {
+    if (request.headers.authorization !== 'Bearer lens-test-key') {
+      response.writeHead(401, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: 'invalid test credential' }));
+      return;
+    }
+
+    const chunks = [];
+    for await (const chunk of request) {
+      chunks.push(chunk);
+    }
+    const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    const hasToolResult = messages.some((message) => message.role === 'tool');
+    const userMessage = messages.find((message) => message.role === 'user');
+
+    if (
+      !hasToolResult &&
+      typeof userMessage?.content === 'string' &&
+      userMessage.content.includes('SLOW_AGENT_TEST')
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      if (response.destroyed) {
+        return;
+      }
+    }
+
+    if (hasToolResult) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: '已填写客户姓名和手机号；表单尚未提交。',
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+
+    const snapshotMatch =
+      typeof userMessage?.content === 'string'
+        ? /Current page snapshot:\n([\s\S]+)\n\nGoal:/.exec(
+            userMessage.content,
+          )
+        : undefined;
+    const snapshot = snapshotMatch?.[1]
+      ? JSON.parse(snapshotMatch[1])
+      : undefined;
+    const fields = snapshot?.forms?.flatMap((form) => form.fields) ?? [];
+    const nameField = fields.find((field) => field.name === 'name');
+    const phoneField = fields.find((field) => field.name === 'phone');
+
+    if (!nameField?.nodeId || !phoneField?.nodeId) {
+      response.writeHead(422, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: 'snapshot fields missing' }));
+      return;
+    }
+
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_fill_customer',
+                  type: 'function',
+                  function: {
+                    name: 'page_form_fill',
+                    arguments: JSON.stringify({
+                      fields: [
+                        {
+                          nodeId: nameField.nodeId,
+                          value: 'Agent Grace',
+                        },
+                        {
+                          nodeId: phoneField.nodeId,
+                          value: '13900002222',
+                        },
+                      ],
+                    }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+  } catch (error) {
+    response.writeHead(500, { 'content-type': 'application/json' });
+    response.end(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
 }
 
 export async function startFixtureServer({

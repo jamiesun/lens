@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type {
   ActionDescriptor,
   FormDescriptor,
@@ -14,6 +14,9 @@ import {
   type TraceEntry,
   useObserverStore,
 } from '../../src/sidepanel/observer-store';
+import { useAgentStore } from '../../src/sidepanel/agent-store';
+import { AgentConsole } from './AgentConsole';
+import { ProviderSettings } from './ProviderSettings';
 
 const phaseLabels: Record<ObserverPhase, string> = {
   idle: 'STANDBY',
@@ -352,6 +355,13 @@ function TracePanel({ trace }: { trace: TraceEntry[] }) {
 }
 
 export default function App() {
+  const [settingsOpen, setSettingsOpen] = useState(true);
+  const vault = useAgentStore((state) => state.vault);
+  const initializeAgent = useAgentStore((state) => state.initialize);
+  const agentPhase = useAgentStore((state) => state.phase);
+  const agentLocalWriteCount = useAgentStore(
+    (state) => state.localWriteCount,
+  );
   const phase = useObserverStore((state) => state.phase);
   const snapshot = useObserverStore((state) => state.snapshot);
   const error = useObserverStore((state) => state.error);
@@ -365,6 +375,22 @@ export default function App() {
   const fieldCount =
     snapshot?.forms.reduce((total, form) => total + form.fields.length, 0) ?? 0;
 
+  useEffect(() => {
+    void initializeAgent();
+  }, [initializeAgent]);
+
+  useEffect(() => {
+    if (vault?.status && vault.status !== 'unlocked') {
+      setSettingsOpen(true);
+    }
+  }, [vault?.status]);
+
+  useEffect(() => {
+    if (agentPhase === 'done') {
+      void scanPage();
+    }
+  }, [agentPhase, scanPage]);
+
   return (
     <div className={`app-shell app-shell--${phase}`}>
       <header className="topbar">
@@ -372,21 +398,35 @@ export default function App() {
           <span className="brand-mark">L</span>
           <span>
             <strong>LENS</strong>
-            <small>PAGE OBSERVER / M1</small>
+            <small>PAGE AGENT / M2</small>
           </span>
         </div>
-        <div
-          className="runtime-status"
-          data-phase={phase}
-          data-testid="scan-status"
-          aria-live="polite"
-        >
-          <span />
-          {phaseLabels[phase]}
+        <div className="topbar__controls">
+          <button
+            type="button"
+            className="settings-toggle"
+            data-testid="settings-toggle"
+            data-vault-status={vault?.status ?? 'loading'}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            KEY · {vault?.status?.toUpperCase() ?? 'LOADING'}
+          </button>
+          <div
+            className="runtime-status"
+            data-phase={phase}
+            data-testid="scan-status"
+            aria-live="polite"
+          >
+            <span />
+            {phaseLabels[phase]}
+          </div>
         </div>
       </header>
 
       <main>
+        <ProviderSettings open={settingsOpen} />
+        {vault?.status === 'unlocked' && <AgentConsole />}
+
         <section className="command-rail">
           <div>
             <p className="section-index">01 / OBSERVE</p>
@@ -462,7 +502,8 @@ export default function App() {
           </span>
           <div>
             <strong>
-              WRITE GATE · {localWriteCount} LOCAL · 0 PENDING
+              WRITE GATE · {localWriteCount + agentLocalWriteCount} LOCAL · 0
+              PENDING
             </strong>
             <p>Fills apply locally with receipts. Submits stay locked.</p>
           </div>
