@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN" data-agent-page-type="customer.create">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="frontend-agent:page-type"
+      content="customer.create"
+    />
+    <title>Customer Console / Create</title>
+    <style>
+      :root {
+        color: #172019;
+        background: #f6f2e7;
+        font-family: sans-serif;
+      }
+
+      body {
+        max-width: 880px;
+        margin: 48px auto;
+        padding: 0 32px;
+      }
+
+      main,
+      form,
+      label,
+      input,
+      button,
+      table,
+      p {
+        display: block;
+      }
+
+      form {
+        padding: 24px;
+        border: 1px solid #999;
+      }
+
+      label {
+        margin: 12px 0;
+      }
+
+      input,
+      button {
+        min-width: 240px;
+        min-height: 36px;
+      }
+
+      table {
+        width: 100%;
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Create customer</h1>
+      <p data-agent-summary>
+        Capture the customer identity and contact channel before saving.
+      </p>
+      <p style="display: none">classified hidden phrase</p>
+
+      <form
+        id="customer-create"
+        data-agent-form="customer-create"
+        data-agent-label="Customer profile"
+      >
+        <label>
+          Customer name
+          <input name="name" value="Ada Lovelace" required />
+        </label>
+        <label>
+          Phone
+          <input name="phone" type="tel" value="13800000000" />
+        </label>
+        <label>
+          Access secret
+          <input
+            name="password"
+            type="password"
+            value="ultra-secret-demo"
+          />
+        </label>
+        <input
+          name="csrf-token"
+          type="hidden"
+          value="token-should-never-appear"
+        />
+        <button
+          type="submit"
+          data-agent-action="customer.create"
+          data-agent-risk="server-write"
+        >
+          Save customer
+        </button>
+      </form>
+
+      <table aria-label="Recent customers">
+        <caption>
+          Recent customers
+        </caption>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Grace Hopper</td>
+            <td>Active</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p role="status">Draft is not saved.</p>
+    </main>
+  </body>
+</html>
