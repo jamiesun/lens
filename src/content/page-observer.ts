@@ -530,3 +530,11 @@ export function buildPageSnapshot(
     visibleTextSummary,
   };
 }
+
+export function isElementVisible(element: Element, view: Window): boolean {
+  return isVisible(element, view);
+}
+
+export function isFieldSensitive(element: HTMLElement): boolean {
+  return isSensitiveField(element, readLabel(element));
+}

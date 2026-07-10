@@ -1,56 +1,92 @@
 import { z } from 'zod';
+import { FillFieldValueSchema, FillResultSchema } from './page-commands';
 import { PageSnapshotSchema } from './page-snapshot';
 
-export const SnapshotRequestSchema = z
-  .object({
-    type: z.literal('lens.page.snapshot.request'),
-    requestId: z.string().min(1).max(128),
-  })
-  .strict();
-
-export const SnapshotErrorCodeSchema = z.enum([
+export const RuntimeErrorCodeSchema = z.enum([
   'INVALID_REQUEST',
   'NO_ACTIVE_TAB',
   'UNSUPPORTED_PAGE',
   'PAGE_ACCESS_DENIED',
   'INVALID_SNAPSHOT',
   'SNAPSHOT_FAILED',
+  'STALE_SNAPSHOT',
+  'FILL_FAILED',
 ]);
 
-export const SnapshotSuccessSchema = z
+const requestId = z.string().min(1).max(128);
+
+const runtimeError = z
   .object({
-    type: z.literal('lens.page.snapshot.response'),
-    requestId: z.string().min(1).max(128),
-    ok: z.literal(true),
-    snapshot: PageSnapshotSchema,
+    code: RuntimeErrorCodeSchema,
+    message: z.string().min(1),
+    details: z.string().min(1).optional(),
   })
   .strict();
 
-export const SnapshotFailureSchema = z
+export const SnapshotRequestSchema = z
   .object({
-    type: z.literal('lens.page.snapshot.response'),
-    requestId: z.string().min(1).max(128),
-    ok: z.literal(false),
-    error: z
-      .object({
-        code: SnapshotErrorCodeSchema,
-        message: z.string().min(1),
-        details: z.string().min(1).optional(),
-      })
-      .strict(),
+    type: z.literal('lens.page.snapshot.request'),
+    requestId,
   })
   .strict();
+
+export const FillRequestSchema = z
+  .object({
+    type: z.literal('lens.page.fill.request'),
+    requestId,
+    snapshotId: z.string().min(1).max(128),
+    generation: z.number().int().positive(),
+    fields: z.array(FillFieldValueSchema).min(1).max(40),
+  })
+  .strict();
+
+export const RuntimeRequestSchema = z.discriminatedUnion('type', [
+  SnapshotRequestSchema,
+  FillRequestSchema,
+]);
 
 export const SnapshotResponseSchema = z.discriminatedUnion('ok', [
-  SnapshotSuccessSchema,
-  SnapshotFailureSchema,
+  z
+    .object({
+      type: z.literal('lens.page.snapshot.response'),
+      requestId,
+      ok: z.literal(true),
+      snapshot: PageSnapshotSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('lens.page.snapshot.response'),
+      requestId,
+      ok: z.literal(false),
+      error: runtimeError,
+    })
+    .strict(),
 ]);
 
-export const RuntimeRequestSchema = SnapshotRequestSchema;
-export const RuntimeResponseSchema = SnapshotResponseSchema;
+export const FillResponseSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      type: z.literal('lens.page.fill.response'),
+      requestId,
+      ok: z.literal(true),
+      result: FillResultSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('lens.page.fill.response'),
+      requestId,
+      ok: z.literal(false),
+      error: runtimeError,
+    })
+    .strict(),
+]);
 
+export type RuntimeErrorCode = z.infer<typeof RuntimeErrorCodeSchema>;
 export type SnapshotRequest = z.infer<typeof SnapshotRequestSchema>;
-export type SnapshotErrorCode = z.infer<typeof SnapshotErrorCodeSchema>;
-export type SnapshotFailure = z.infer<typeof SnapshotFailureSchema>;
+export type FillRequest = z.infer<typeof FillRequestSchema>;
+export type RuntimeRequest = z.infer<typeof RuntimeRequestSchema>;
 export type SnapshotResponse = z.infer<typeof SnapshotResponseSchema>;
-export type RuntimeResponse = z.infer<typeof RuntimeResponseSchema>;
+export type FillResponse = z.infer<typeof FillResponseSchema>;
+export type RuntimeResponse = SnapshotResponse | FillResponse;

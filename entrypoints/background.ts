@@ -1,8 +1,8 @@
 import { browser } from 'wxt/browser';
 import {
   handleRuntimeRequest,
-  type SnapshotDependencies,
-} from '../src/background/snapshot-service';
+  type PageServiceDependencies,
+} from '../src/background/page-service';
 
 export default defineBackground(() => {
   void browser.sidePanel
@@ -11,7 +11,7 @@ export default defineBackground(() => {
       console.error('Lens could not configure the Side Panel action.', error);
     });
 
-  const dependencies: SnapshotDependencies = {
+  const dependencies: PageServiceDependencies = {
     async getActiveTab() {
       const [tab] = await browser.tabs.query({
         active: true,
@@ -19,12 +19,14 @@ export default defineBackground(() => {
       });
       return tab;
     },
-    async executeSnapshot(tabId) {
-      const [result] = await browser.scripting.executeScript({
+    async ensurePageAgent(tabId) {
+      await browser.scripting.executeScript({
         target: { tabId },
-        files: ['/content-scripts/snapshot.js'],
+        files: ['/content-scripts/page-agent.js'],
       });
-      return result?.result;
+    },
+    async sendPageCommand(tabId, command) {
+      return browser.tabs.sendMessage(tabId, command);
     },
   };
 
