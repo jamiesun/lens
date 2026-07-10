@@ -65,3 +65,8 @@ export function createDocumentElementRegistry(): ElementRegistry {
 
   return registry;
 }
+
+export function getDocumentElementRegistry(): ElementRegistry | undefined {
+  const registryGlobal = globalThis as typeof globalThis & RegistryGlobal;
+  return registryGlobal.__lensElementRegistryV1?.registry;
+}

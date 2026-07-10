@@ -1,8 +1,14 @@
+import { useState } from 'react';
 import type {
   ActionDescriptor,
   FormDescriptor,
+  FormFieldDescriptor,
   PageSnapshot,
 } from '../../src/protocol/page-snapshot';
+import type {
+  FieldFillOutcome,
+  FillFieldValue,
+} from '../../src/protocol/page-commands';
 import {
   type ObserverPhase,
   type TraceEntry,
@@ -15,6 +21,20 @@ const phaseLabels: Record<ObserverPhase, string> = {
   ready: 'LOCKED',
   error: 'INTERRUPTED',
 };
+
+const EDITABLE_FIELD_TYPES = new Set([
+  'text',
+  'email',
+  'tel',
+  'url',
+  'search',
+  'number',
+  'textarea',
+]);
+
+function isEditableField(field: FormFieldDescriptor): boolean {
+  return !field.sensitive && EDITABLE_FIELD_TYPES.has(field.fieldType);
+}
 
 function ScanIcon() {
   return (
@@ -55,8 +75,8 @@ function EmptyTarget() {
       <p className="section-index">00 / TARGET</p>
       <h2 id="empty-title">Arm the page lens.</h2>
       <p>
-        从浏览器工具栏打开 Lens 后扫描当前页面。首次切片只读取可见语义，
-        不修改任何页面状态。
+        从浏览器工具栏打开 Lens 后扫描当前页面。扫描只读取可见语义，
+        填写字段会实时显示逐项结果。
       </p>
     </section>
   );
@@ -109,7 +129,125 @@ function SnapshotHeader({ snapshot }: { snapshot: PageSnapshot }) {
   );
 }
 
-function FormInventory({ forms }: { forms: FormDescriptor[] }) {
+function FillBadge({ outcome }: { outcome?: FieldFillOutcome }) {
+  if (!outcome) {
+    return null;
+  }
+
+  return (
+    <span
+      className={
+        outcome.status === 'filled'
+          ? 'fill-badge fill-badge--filled'
+          : 'fill-badge fill-badge--rejected'
+      }
+      data-testid="fill-badge"
+    >
+      {outcome.status === 'filled' ? 'FILLED' : outcome.reason.toUpperCase()}
+    </span>
+  );
+}
+
+function FormEditor({
+  form,
+  outcomes,
+  busy,
+  onFill,
+}: {
+  form: FormDescriptor;
+  outcomes: Record<string, FieldFillOutcome>;
+  busy: boolean;
+  onFill: (formNodeId: string, fields: FillFieldValue[]) => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, string>>({});
+
+  const dirtyFields: FillFieldValue[] = Object.entries(draft)
+    .filter(([, value]) => value.length > 0)
+    .map(([nodeId, value]) => ({ nodeId, value }));
+
+  return (
+    <article className="form-row" key={form.nodeId}>
+      <div className="form-row__title">
+        <strong>{form.label ?? form.formId}</strong>
+        <span>{form.validationState}</span>
+      </div>
+
+      <div className="fill-editor">
+        {form.fields.map((field) => {
+          if (isEditableField(field)) {
+            return (
+              <label className="fill-row" key={field.nodeId}>
+                <span className="fill-row__label">
+                  {field.label ?? field.name ?? field.fieldType}
+                </span>
+                <input
+                  className="fill-row__input"
+                  type="text"
+                  value={draft[field.nodeId] ?? ''}
+                  placeholder={field.hasValue ? '(keeps current value)' : '—'}
+                  data-field-name={field.name ?? field.nodeId}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      [field.nodeId]: event.target.value,
+                    }))
+                  }
+                />
+                <FillBadge outcome={outcomes[field.nodeId]} />
+              </label>
+            );
+          }
+
+          return (
+            <div className="fill-row fill-row--locked" key={field.nodeId}>
+              <span className="fill-row__label">
+                {field.label ?? field.name ?? field.fieldType}
+              </span>
+              <span
+                className={
+                  field.sensitive
+                    ? 'field-tag is-sensitive'
+                    : 'field-tag'
+                }
+              >
+                {field.sensitive ? 'MASKED' : field.fieldType.toUpperCase()}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="fill-actions">
+        <span className="fill-actions__note">
+          local-write · auto-applied · no submit
+        </span>
+        <button
+          className="apply-button"
+          type="button"
+          disabled={busy || dirtyFields.length === 0}
+          data-testid={`apply-fill-${form.formId}`}
+          onClick={() => onFill(form.nodeId, dirtyFields)}
+        >
+          <ArrowIcon />
+          {busy ? 'APPLYING' : 'APPLY FILL'}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function FormInventory({
+  forms,
+  outcomes,
+  fillingFormId,
+  onFill,
+}: {
+  forms: FormDescriptor[];
+  outcomes: Record<string, FieldFillOutcome>;
+  fillingFormId?: string;
+  onFill: (formNodeId: string, fields: FillFieldValue[]) => void;
+}) {
   return (
     <section className="instrument-card" aria-labelledby="forms-title">
       <div className="instrument-card__header">
@@ -125,27 +263,13 @@ function FormInventory({ forms }: { forms: FormDescriptor[] }) {
       ) : (
         <div className="inventory-list">
           {forms.slice(0, 4).map((form) => (
-            <article className="form-row" key={form.nodeId}>
-              <div className="form-row__title">
-                <strong>{form.label ?? form.formId}</strong>
-                <span>{form.validationState}</span>
-              </div>
-              <div className="field-tags">
-                {form.fields.slice(0, 8).map((field) => (
-                  <span
-                    className={field.sensitive ? 'field-tag is-sensitive' : 'field-tag'}
-                    key={field.nodeId}
-                    title={field.sensitive ? 'Sensitive value is never captured' : undefined}
-                  >
-                    {field.label ?? field.name ?? field.fieldType}
-                    {field.sensitive ? ' · MASKED' : ''}
-                  </span>
-                ))}
-                {form.fields.length > 8 ? (
-                  <span className="field-tag">+{form.fields.length - 8}</span>
-                ) : null}
-              </div>
-            </article>
+            <FormEditor
+              key={form.nodeId}
+              form={form}
+              outcomes={outcomes}
+              busy={fillingFormId === form.nodeId}
+              onFill={onFill}
+            />
           ))}
         </div>
       )}
@@ -232,7 +356,11 @@ export default function App() {
   const snapshot = useObserverStore((state) => state.snapshot);
   const error = useObserverStore((state) => state.error);
   const trace = useObserverStore((state) => state.trace);
+  const fillingFormId = useObserverStore((state) => state.fillingFormId);
+  const fillOutcomes = useObserverStore((state) => state.fillOutcomes);
+  const localWriteCount = useObserverStore((state) => state.localWriteCount);
   const scanPage = useObserverStore((state) => state.scanPage);
+  const fillForm = useObserverStore((state) => state.fillForm);
 
   const fieldCount =
     snapshot?.forms.reduce((total, form) => total + form.fields.length, 0) ?? 0;
@@ -244,7 +372,7 @@ export default function App() {
           <span className="brand-mark">L</span>
           <span>
             <strong>LENS</strong>
-            <small>PAGE OBSERVER / M0</small>
+            <small>PAGE OBSERVER / M1</small>
           </span>
         </div>
         <div
@@ -263,14 +391,15 @@ export default function App() {
           <div>
             <p className="section-index">01 / OBSERVE</p>
             <p className="command-copy">
-              Read the active page as a compact semantic instrument panel.
+              Read the active page, then fill visible fields with per-field
+              receipts.
             </p>
           </div>
           <button
             className="scan-button"
             type="button"
             onClick={() => void scanPage()}
-            disabled={phase === 'scanning'}
+            disabled={phase === 'scanning' || Boolean(fillingFormId)}
             data-testid="scan-page"
           >
             <ScanIcon />
@@ -310,7 +439,12 @@ export default function App() {
             </section>
 
             <div className="instrument-grid">
-              <FormInventory forms={snapshot.forms} />
+              <FormInventory
+                forms={snapshot.forms}
+                outcomes={fillOutcomes}
+                fillingFormId={fillingFormId}
+                onFill={(formNodeId, fields) => void fillForm(formNodeId, fields)}
+              />
               <ActionInventory actions={snapshot.actions} />
             </div>
           </div>
@@ -318,13 +452,19 @@ export default function App() {
           <EmptyTarget />
         )}
 
-        <section className="write-gate" aria-label="Write gate status">
+        <section
+          className="write-gate"
+          aria-label="Write gate status"
+          data-testid="write-gate"
+        >
           <span className="write-gate__icon">
             <ShieldIcon />
           </span>
           <div>
-            <strong>WRITE GATE · 0 PENDING</strong>
-            <p>Observer mode cannot modify or submit page state.</p>
+            <strong>
+              WRITE GATE · {localWriteCount} LOCAL · 0 PENDING
+            </strong>
+            <p>Fills apply locally with receipts. Submits stay locked.</p>
           </div>
           <span className="write-gate__status">SAFE</span>
         </section>

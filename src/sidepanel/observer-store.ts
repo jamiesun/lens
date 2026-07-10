@@ -1,16 +1,21 @@
 import { create } from 'zustand';
-import type { SnapshotErrorCode } from '../protocol/messages';
+import type { RuntimeErrorCode } from '../protocol/messages';
+import type {
+  FieldFillOutcome,
+  FillFieldValue,
+} from '../protocol/page-commands';
 import type { PageSnapshot } from '../protocol/page-snapshot';
 import {
+  LensRuntimeError,
+  requestFormFill,
   requestPageSnapshot,
-  SnapshotClientError,
 } from './runtime-client';
 
 export type ObserverPhase = 'idle' | 'scanning' | 'ready' | 'error';
 
 export interface TraceEntry {
   id: string;
-  tool: 'page.snapshot';
+  tool: 'page.snapshot' | 'page.form.fill';
   status: 'running' | 'completed' | 'failed';
   startedAt: string;
   durationMs?: number;
@@ -18,7 +23,7 @@ export interface TraceEntry {
 }
 
 interface ObserverError {
-  code: SnapshotErrorCode;
+  code: RuntimeErrorCode;
   title: string;
   message: string;
 }
@@ -28,7 +33,11 @@ interface ObserverState {
   snapshot?: PageSnapshot;
   error?: ObserverError;
   trace: TraceEntry[];
+  fillingFormId?: string;
+  fillOutcomes: Record<string, FieldFillOutcome>;
+  localWriteCount: number;
   scanPage: () => Promise<void>;
+  fillForm: (formNodeId: string, fields: FillFieldValue[]) => Promise<void>;
 }
 
 function createTraceId(): string {
@@ -38,10 +47,10 @@ function createTraceId(): string {
 }
 
 function formatError(error: unknown): ObserverError {
-  if (!(error instanceof SnapshotClientError)) {
+  if (!(error instanceof LensRuntimeError)) {
     return {
       code: 'SNAPSHOT_FAILED',
-      title: 'Snapshot interrupted',
+      title: 'Runtime interrupted',
       message: error instanceof Error ? error.message : String(error),
     };
   }
@@ -66,6 +75,13 @@ function formatError(error: unknown): ObserverError {
         title: 'No active target',
         message: 'Select a browser tab before starting a page scan.',
       };
+    case 'STALE_SNAPSHOT':
+      return {
+        code: error.code,
+        title: 'Snapshot out of date',
+        message:
+          'The page changed since the last scan. Rescan to refresh node identities.',
+      };
     case 'INVALID_REQUEST':
     case 'INVALID_SNAPSHOT':
       return {
@@ -73,6 +89,12 @@ function formatError(error: unknown): ObserverError {
         title: 'Protocol mismatch',
         message:
           'The page observer and Side Panel returned incompatible data.',
+      };
+    case 'FILL_FAILED':
+      return {
+        code: error.code,
+        title: 'Fill interrupted',
+        message: error.message,
       };
     case 'SNAPSHOT_FAILED':
       return {
@@ -96,9 +118,11 @@ function replaceTrace(
 export const useObserverStore = create<ObserverState>((set, get) => ({
   phase: 'idle',
   trace: [],
+  fillOutcomes: {},
+  localWriteCount: 0,
 
   async scanPage() {
-    if (get().phase === 'scanning') {
+    if (get().phase === 'scanning' || get().fillingFormId) {
       return;
     }
 
@@ -115,6 +139,7 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
     set((state) => ({
       phase: 'scanning',
       error: undefined,
+      fillOutcomes: {},
       trace: [traceEntry, ...state.trace].slice(0, 8),
     }));
 
@@ -138,6 +163,70 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
 
       set((state) => ({
         phase: 'error',
+        error: observerError,
+        trace: replaceTrace(state.trace, traceId, {
+          status: 'failed',
+          durationMs,
+          detail: observerError.title,
+        }),
+      }));
+    }
+  },
+
+  async fillForm(formNodeId, fields) {
+    const { snapshot, phase, fillingFormId } = get();
+    if (!snapshot || phase === 'scanning' || fillingFormId) {
+      return;
+    }
+
+    const traceId = createTraceId();
+    const startedAt = performance.now();
+    const traceEntry: TraceEntry = {
+      id: traceId,
+      tool: 'page.form.fill',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      detail: `Writing ${fields.length} field${fields.length === 1 ? '' : 's'}`,
+    };
+
+    set((state) => ({
+      fillingFormId: formNodeId,
+      error: undefined,
+      trace: [traceEntry, ...state.trace].slice(0, 8),
+    }));
+
+    try {
+      const result = await requestFormFill({
+        snapshotId: snapshot.snapshotId,
+        generation: snapshot.generation,
+        fields,
+      });
+      const durationMs = Math.round(performance.now() - startedAt);
+      const filledCount = result.outcomes.filter(
+        (outcome) => outcome.status === 'filled',
+      ).length;
+
+      set((state) => ({
+        fillingFormId: undefined,
+        fillOutcomes: {
+          ...state.fillOutcomes,
+          ...Object.fromEntries(
+            result.outcomes.map((outcome) => [outcome.nodeId, outcome]),
+          ),
+        },
+        localWriteCount: state.localWriteCount + filledCount,
+        trace: replaceTrace(state.trace, traceId, {
+          status: 'completed',
+          durationMs,
+          detail: `${filledCount}/${result.outcomes.length} fields filled`,
+        }),
+      }));
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startedAt);
+      const observerError = formatError(error);
+
+      set((state) => ({
+        fillingFormId: undefined,
         error: observerError,
         trace: replaceTrace(state.trace, traceId, {
           status: 'failed',
