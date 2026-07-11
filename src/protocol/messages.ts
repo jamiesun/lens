@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { FillFieldValueSchema, FillResultSchema } from './page-commands';
+import {
+  ClickResultSchema,
+  FillFieldValueSchema,
+  FillResultSchema,
+} from './page-commands';
 import { PageSnapshotSchema } from './page-snapshot';
 
 export const RuntimeErrorCodeSchema = z.enum([
@@ -11,9 +15,34 @@ export const RuntimeErrorCodeSchema = z.enum([
   'SNAPSHOT_FAILED',
   'STALE_SNAPSHOT',
   'FILL_FAILED',
+  'CLICK_FAILED',
 ]);
 
 const requestId = z.string().min(1).max(128);
+
+/**
+ * Broadcast by the background worker after a toolbar action click. The click
+ * is the moment Chrome arms activeTab, so open panels rescan on receipt.
+ */
+export const ActionInvokedMessageSchema = z
+  .object({
+    type: z.literal('lens.action.invoked'),
+    windowId: z.number().int(),
+  })
+  .strict();
+
+export type ActionInvokedMessage = z.infer<typeof ActionInvokedMessageSchema>;
+
+export function shouldHandleActionInvocation(
+  message: unknown,
+  panelWindowId: number | undefined,
+): boolean {
+  const parsed = ActionInvokedMessageSchema.safeParse(message);
+  if (!parsed.success) {
+    return false;
+  }
+  return panelWindowId === undefined || parsed.data.windowId === panelWindowId;
+}
 
 const runtimeError = z
   .object({
@@ -40,9 +69,20 @@ export const FillRequestSchema = z
   })
   .strict();
 
+export const ClickRequestSchema = z
+  .object({
+    type: z.literal('lens.page.click.request'),
+    requestId,
+    snapshotId: z.string().min(1).max(128),
+    generation: z.number().int().positive(),
+    nodeId: z.string().min(1).max(128),
+  })
+  .strict();
+
 export const RuntimeRequestSchema = z.discriminatedUnion('type', [
   SnapshotRequestSchema,
   FillRequestSchema,
+  ClickRequestSchema,
 ]);
 
 export const SnapshotResponseSchema = z.discriminatedUnion('ok', [
@@ -83,10 +123,31 @@ export const FillResponseSchema = z.discriminatedUnion('ok', [
     .strict(),
 ]);
 
+export const ClickResponseSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      type: z.literal('lens.page.click.response'),
+      requestId,
+      ok: z.literal(true),
+      result: ClickResultSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('lens.page.click.response'),
+      requestId,
+      ok: z.literal(false),
+      error: runtimeError,
+    })
+    .strict(),
+]);
+
 export type RuntimeErrorCode = z.infer<typeof RuntimeErrorCodeSchema>;
 export type SnapshotRequest = z.infer<typeof SnapshotRequestSchema>;
 export type FillRequest = z.infer<typeof FillRequestSchema>;
+export type ClickRequest = z.infer<typeof ClickRequestSchema>;
 export type RuntimeRequest = z.infer<typeof RuntimeRequestSchema>;
 export type SnapshotResponse = z.infer<typeof SnapshotResponseSchema>;
 export type FillResponse = z.infer<typeof FillResponseSchema>;
-export type RuntimeResponse = SnapshotResponse | FillResponse;
+export type ClickResponse = z.infer<typeof ClickResponseSchema>;
+export type RuntimeResponse = SnapshotResponse | FillResponse | ClickResponse;

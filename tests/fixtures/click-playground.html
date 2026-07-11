@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN" data-agent-page-type="playground.click">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="frontend-agent:page-type" content="playground.click" />
+    <title>Click Playground</title>
+    <style>
+      :root {
+        color: #172019;
+        background: #f6f2e7;
+        font-family: sans-serif;
+      }
+
+      body {
+        max-width: 880px;
+        margin: 48px auto;
+        padding: 0 32px;
+      }
+
+      button {
+        min-width: 200px;
+        min-height: 36px;
+        display: block;
+        margin: 12px 0;
+      }
+
+      .peg {
+        width: 140px;
+        height: 60px;
+        margin: 12px 0;
+        border: 2px solid #444;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Click playground</h1>
+      <p data-agent-summary>
+        A tiny board for exercising the controlled page click tool.
+      </p>
+
+      <p>Counter value: <output id="count" aria-live="polite">0</output></p>
+
+      <button id="increment" type="button">加一</button>
+
+      <div class="peg" id="peg-left" data-peg="0"></div>
+
+      <button id="disabled-button" type="button" disabled>禁用按钮</button>
+
+      <button
+        id="destroy"
+        type="button"
+        data-agent-action="playground.destroy"
+        data-agent-risk="destructive"
+      >
+        清空数据
+      </button>
+
+      <form id="apply-form">
+        <label>
+          备注
+          <input name="note" value="draft" />
+        </label>
+        <button id="submit-form" type="submit">提交申请</button>
+      </form>
+
+      <p role="status" id="flags">idle</p>
+    </main>
+
+    <script>
+      const count = document.getElementById('count');
+      const flags = document.getElementById('flags');
+      let value = 0;
+
+      const bump = () => {
+        value += 1;
+        count.textContent = String(value);
+      };
+
+      document.getElementById('increment').addEventListener('click', bump);
+      document.getElementById('peg-left').addEventListener('click', () => {
+        bump();
+        flags.textContent = 'peg-clicked';
+      });
+      document.getElementById('destroy').addEventListener('click', () => {
+        flags.textContent = 'destroyed';
+      });
+      document.getElementById('apply-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        flags.textContent = 'submitted';
+      });
+    </script>
+  </body>
+</html>

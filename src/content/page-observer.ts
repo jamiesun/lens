@@ -57,6 +57,10 @@ function isVisible(element: Element, view: Window): boolean {
 }
 
 function readLabel(element: HTMLElement): string | undefined {
+  return readAttributeLabel(element) ?? readFallbackLabel(element);
+}
+
+function readAttributeLabel(element: HTMLElement): string | undefined {
   const directLabel =
     element.dataset.agentLabel ??
     element.getAttribute('aria-label') ??
@@ -88,10 +92,24 @@ function readLabel(element: HTMLElement): string | undefined {
     return normalizeText(wrappingLabel?.textContent);
   }
 
+  return undefined;
+}
+
+function readFallbackLabel(element: HTMLElement): string | undefined {
   return normalizeText(
     element.getAttribute('placeholder') ??
       element.getAttribute('name') ??
       element.id,
+  );
+}
+
+// Activation targets read better by their visible text than by id/name
+// fallbacks, so the model can match goals like "点击 重新开始".
+function readActionLabel(element: HTMLElement): string | undefined {
+  return (
+    readAttributeLabel(element) ??
+    normalizeText(element.textContent) ??
+    readFallbackLabel(element)
   );
 }
 
@@ -341,6 +359,112 @@ function parseDeclaredRisk(value: string | undefined): ToolRisk | undefined {
     : undefined;
 }
 
+const EXPLICIT_ACTION_SELECTOR =
+  'button, [role="button"], input[type="submit"], input[type="button"], a[href], [data-agent-action]';
+const CLICKABLE_SELF_SKIP =
+  'html, body, input, select, textarea, option, optgroup, label, form';
+const MAX_ACTIONS = 50;
+const MAX_CLICKABLES = 20;
+const MAX_CLICKABLE_SCAN = 1_500;
+
+function describeClickTarget(element: HTMLElement): string {
+  const tag = element.tagName.toLowerCase();
+  const id = element.id ? `#${element.id}` : '';
+  const classes = Array.from(element.classList)
+    .slice(0, 3)
+    .map((name) => `.${name}`)
+    .join('');
+  const dataAttributes = Array.from(element.attributes)
+    .filter(
+      (attribute) =>
+        attribute.name.startsWith('data-') &&
+        !attribute.name.startsWith('data-agent-'),
+    )
+    .slice(0, 2)
+    .map((attribute) => `[${attribute.name}="${attribute.value.slice(0, 24)}"]`)
+    .join('');
+
+  return `${tag}${id}${classes}${dataAttributes}`;
+}
+
+/**
+ * Collects elements that advertise a click affordance (pointer cursor or an
+ * inline onclick attribute) without carrying button/link semantics, so pages
+ * built from styled divs — game boards, custom widgets — stay operable.
+ * Only the outermost pointer target of a subtree is kept.
+ */
+function collectClickables(
+  document: Document,
+  view: Window,
+  registry: ElementRegistry,
+  budget: number,
+): ActionDescriptor[] {
+  const clickables: ActionDescriptor[] = [];
+  const body = document.body;
+  if (!body || budget <= 0) {
+    return clickables;
+  }
+
+  let examined = 0;
+  for (const element of Array.from(body.getElementsByTagName('*'))) {
+    if (
+      examined >= MAX_CLICKABLE_SCAN ||
+      clickables.length >= Math.min(budget, MAX_CLICKABLES)
+    ) {
+      break;
+    }
+    examined += 1;
+
+    if (!(element instanceof HTMLElement)) {
+      continue;
+    }
+    if (
+      element.matches(CLICKABLE_SELF_SKIP) ||
+      element.closest(`${EXPLICIT_ACTION_SELECTOR}, label`) ||
+      element.querySelector(EXPLICIT_ACTION_SELECTOR)
+    ) {
+      continue;
+    }
+
+    const hasOnclick = element.hasAttribute('onclick');
+    const pointer = view.getComputedStyle(element).cursor === 'pointer';
+    if (!hasOnclick && !pointer) {
+      continue;
+    }
+    if (!hasOnclick && pointer) {
+      const parent = element.parentElement;
+      if (
+        parent &&
+        parent !== body &&
+        view.getComputedStyle(parent).cursor === 'pointer'
+      ) {
+        continue;
+      }
+    }
+    if (!isVisible(element, view)) {
+      continue;
+    }
+
+    const descriptor = describeClickTarget(element);
+    const text = normalizeText(element.textContent, 60);
+    const label =
+      readAttributeLabel(element) ??
+      normalizeText(text ? `${descriptor} · ${text}` : descriptor, 160);
+    if (!label) {
+      continue;
+    }
+
+    clickables.push({
+      nodeId: registry.register(element),
+      role: 'clickable',
+      label,
+      disabled: false,
+    });
+  }
+
+  return clickables;
+}
+
 function collectActions(
   document: Document,
   view: Window,
@@ -348,13 +472,11 @@ function collectActions(
 ): ActionDescriptor[] {
   const actions: ActionDescriptor[] = [];
   const elements = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      'button, [role="button"], input[type="submit"], input[type="button"], a[href], [data-agent-action]',
-    ),
+    document.querySelectorAll<HTMLElement>(EXPLICIT_ACTION_SELECTOR),
   ).filter((element) => isVisible(element, view));
 
   for (const element of elements) {
-    const label = readLabel(element) ?? normalizeText(element.textContent);
+    const label = readActionLabel(element);
     if (!label) {
       continue;
     }
@@ -374,10 +496,14 @@ function collectActions(
           : false,
     });
 
-    if (actions.length >= 50) {
+    if (actions.length >= MAX_ACTIONS) {
       break;
     }
   }
+
+  actions.push(
+    ...collectClickables(document, view, registry, MAX_ACTIONS - actions.length),
+  );
 
   return actions;
 }

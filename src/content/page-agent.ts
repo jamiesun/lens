@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { PageCommandSchema } from '../protocol/page-commands';
+import { clickNode } from './click-controller';
 import {
   createDocumentElementRegistry,
   getDocumentElementRegistry,
@@ -67,6 +68,11 @@ export function installPageAgent(): InstallResult {
         case 'page.form.fill':
           sendResponse(
             fillFields(getDocumentElementRegistry(), parsedCommand.data.payload),
+          );
+          return;
+        case 'page.click':
+          sendResponse(
+            clickNode(getDocumentElementRegistry(), parsedCommand.data.payload),
           );
           return;
         case 'page.screenshot.prepare':

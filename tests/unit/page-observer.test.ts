@@ -127,4 +127,44 @@ describe('buildPageSnapshot', () => {
       secondSnapshot.headings[0]?.nodeId,
     );
   });
+
+  it('collects pointer-affordance elements as clickable actions', () => {
+    document.body.innerHTML = `
+      <section class="board">
+        <div class="peg" data-peg="0" style="cursor: pointer">
+          <div class="peg__rod" style="cursor: pointer"></div>
+        </div>
+        <div class="peg" data-peg="1" style="cursor: pointer">
+          <span>3</span>
+        </div>
+        <div class="counter" onclick="void 0">加一</div>
+        <div class="wrapper" style="cursor: pointer">
+          <button type="button">Real button</button>
+        </div>
+        <div class="plain">Not clickable</div>
+      </section>
+    `;
+
+    const snapshot = buildPageSnapshot(
+      document,
+      window,
+      new ElementRegistry(1, 'snapshot_clickables'),
+    );
+    const clickables = snapshot.actions.filter(
+      (action) => action.role === 'clickable',
+    );
+    const labels = clickables.map((action) => action.label);
+
+    expect(labels).toContain('div.peg[data-peg="0"]');
+    expect(labels).toContain('div.peg[data-peg="1"] · 3');
+    expect(labels.some((label) => label.includes('div.counter'))).toBe(true);
+    // The inner rod inherits the pointer from its peg and stays deduplicated.
+    expect(labels.some((label) => label.includes('peg__rod'))).toBe(false);
+    // A pointer wrapper around a real button defers to the button action.
+    expect(labels.some((label) => label.includes('wrapper'))).toBe(false);
+    expect(snapshot.actions.some((action) => action.label === 'Real button')).toBe(
+      true,
+    );
+    expect(labels.some((label) => label.includes('plain'))).toBe(false);
+  });
 });

@@ -40,7 +40,12 @@ export const AgentEventSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('tool'),
-      tool: z.enum(['page.snapshot', 'page.form.fill', 'page.screenshot']),
+      tool: z.enum([
+        'page.snapshot',
+        'page.form.fill',
+        'page.click',
+        'page.screenshot',
+      ]),
       status: z.enum(['started', 'completed', 'failed']),
       detail: z.string().max(300),
       affected: z.number().int().nonnegative().optional(),

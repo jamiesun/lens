@@ -20,6 +20,7 @@ import {
   type AgentEvent,
 } from '../src/protocol/agent-events';
 import type {
+  ClickResponse,
   FillResponse,
   SnapshotResponse,
 } from '../src/protocol/messages';
@@ -30,11 +31,35 @@ import {
 } from '../src/protocol/screenshot';
 
 export default defineBackground(() => {
+  // Chromium never grants activeTab when an action click merely toggles the
+  // side panel (extension_action_runner.cc routes those clicks to
+  // kToggleSidePanel before GrantTabPermissions runs, see crbug.com/40904917).
+  // Lens therefore keeps openPanelOnActionClick disabled and opens the panel
+  // from action.onClicked: that click path arms activeTab first, and clicking
+  // the icon on an already-open panel re-arms access instead of closing it.
   void browser.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
+    .setPanelBehavior({ openPanelOnActionClick: false })
     .catch((error: unknown) => {
       console.error('Lens could not configure the Side Panel action.', error);
     });
+
+  browser.action.onClicked.addListener((tab) => {
+    if (typeof tab.windowId !== 'number') {
+      return;
+    }
+    // Must stay synchronous inside the click handler to keep the gesture.
+    browser.sidePanel.open({ windowId: tab.windowId }).catch((error: unknown) => {
+      console.error('Lens could not open the Side Panel.', error);
+    });
+    browser.runtime
+      .sendMessage({
+        type: 'lens.action.invoked',
+        windowId: tab.windowId,
+      })
+      .catch(() => {
+        // No panel is listening yet; the panel scans on mount instead.
+      });
+  });
 
   void browser.storage.local
     .setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
@@ -214,6 +239,21 @@ export default defineBackground(() => {
           );
           return response as FillResponse;
         };
+        const runClick = async (input: {
+          snapshotId: string;
+          generation: number;
+          nodeId: string;
+        }): Promise<ClickResponse> => {
+          const response = await handleRuntimeRequest(
+            {
+              type: 'lens.page.click.request',
+              requestId: crypto.randomUUID(),
+              ...input,
+            },
+            pinnedPageDependencies,
+          );
+          return response as ClickResponse;
+        };
         const runScreenshot = async (
           mode: 'viewport' | 'full-page',
           signal?: AbortSignal,
@@ -234,6 +274,7 @@ export default defineBackground(() => {
             vault,
             runSnapshot,
             runFill,
+            runClick,
             runScreenshot,
             complete: ({ provider, apiKey, messages, tools, signal }) =>
               chatComplete({

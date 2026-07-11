@@ -315,7 +315,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             update.runStatus = event.text;
           } else if (
             event.kind === 'tool' &&
-            event.tool === 'page.form.fill' &&
+            (event.tool === 'page.form.fill' || event.tool === 'page.click') &&
             event.status === 'completed'
           ) {
             update.localWriteCount =

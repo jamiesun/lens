@@ -60,3 +60,45 @@ test('offers no grant entry on protected browser surfaces', async ({
   await expect(panel.getByTestId('grant-site-access')).toHaveCount(0);
   await expect(panel.getByTestId('revoke-site-access')).toHaveCount(0);
 });
+
+test('rescans when the toolbar action arms page access', async ({
+  context,
+  extensionId,
+}) => {
+  const { panel, target } = await openObserver(
+    context,
+    extensionId,
+    customerFixtureUrl,
+  );
+
+  // Opening another extension page switches the active tab, which drops the
+  // panel back to the idle "page changed" state.
+  const broadcaster = await context.newPage();
+  await broadcaster.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+  await target.bringToFront();
+  await expect(panel.getByTestId('scan-status')).toHaveAttribute(
+    'data-phase',
+    'idle',
+  );
+
+  // Replay the exact broadcast the background worker emits on an action
+  // click; the panel must rescan the freshly armed page.
+  await broadcaster.evaluate(async () => {
+    const extension = globalThis as typeof globalThis & {
+      chrome: {
+        windows: { getCurrent: () => Promise<{ id?: number }> };
+        runtime: { sendMessage: (message: unknown) => Promise<unknown> };
+      };
+    };
+    const window = await extension.chrome.windows.getCurrent();
+    await extension.chrome.runtime.sendMessage({
+      type: 'lens.action.invoked',
+      windowId: window.id,
+    });
+  });
+
+  await expect(panel.getByTestId('scan-status')).toHaveAttribute(
+    'data-phase',
+    'ready',
+  );
+});

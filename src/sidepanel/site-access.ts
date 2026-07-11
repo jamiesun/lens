@@ -11,31 +11,26 @@ export interface SiteAccessApi {
  * - `unknown`: the tab URL is not readable, which means neither activeTab nor
  *   a persistent host permission is armed for the page.
  * - `unsupported`: the URL is readable but is not an HTTP(S) page.
- * - `unrequestable`: readable HTTP page outside the optional host permission
- *   allowlist (plain HTTP on a non-loopback host), so only activeTab works.
  * - `temporary`: readable via activeTab only; a persistent grant is possible.
  * - `persistent`: the origin holds a persistent host permission.
  */
 export type SiteAccess =
   | { kind: 'unknown' }
   | { kind: 'unsupported'; url: string }
-  | { kind: 'unrequestable'; host: string }
   | { kind: 'temporary'; host: string; pattern: string }
   | { kind: 'persistent'; host: string; pattern: string };
 
 export interface OriginTarget {
   host: string;
   pattern: string;
-  requestable: boolean;
 }
-
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
  * Builds the host permission pattern for a page URL. Match patterns ignore
- * ports, so the pattern is protocol + hostname. Only patterns inside the
- * manifest `optional_host_permissions` allowlist are requestable: any HTTPS
- * origin, or loopback HTTP for local development systems.
+ * ports, so the pattern is protocol + hostname. Any HTTP(S) origin can be
+ * requested: `optional_host_permissions` covers both schemes and the browser
+ * still asks the user per site, which keeps intranet business systems
+ * grantable without granting anything by default.
  */
 export function originTargetFor(url: string): OriginTarget | undefined {
   let parsed: URL;
@@ -49,13 +44,9 @@ export function originTargetFor(url: string): OriginTarget | undefined {
     return undefined;
   }
 
-  const requestable =
-    parsed.protocol === 'https:' || LOOPBACK_HOSTS.has(parsed.hostname);
-
   return {
     host: parsed.host,
     pattern: `${parsed.protocol}//${parsed.hostname}/*`,
-    requestable,
   };
 }
 
@@ -76,10 +67,6 @@ export async function describeSiteAccess(
   const target = originTargetFor(url);
   if (!target) {
     return { kind: 'unsupported', url };
-  }
-
-  if (!target.requestable) {
-    return { kind: 'unrequestable', host: target.host };
   }
 
   let persistent = false;

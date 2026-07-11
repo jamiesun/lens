@@ -18,13 +18,17 @@ export function createFixtureServer() {
       return;
     }
 
-    if (requestUrl.pathname === '/customer-create.html') {
+    const staticPages = new Set([
+      '/customer-create.html',
+      '/click-playground.html',
+    ]);
+    if (staticPages.has(requestUrl.pathname)) {
       response.writeHead(200, {
         'cache-control': 'no-store',
         'content-type': 'text/html; charset=utf-8',
       });
       const fixtureStream = createReadStream(
-        path.join(fixturesDirectory, 'customer-create.html'),
+        path.join(fixturesDirectory, requestUrl.pathname.slice(1)),
       );
       fixtureStream.on('error', (error) => {
         console.error('Lens fixture server could not read the test page.', error);
@@ -148,13 +152,18 @@ async function respondWithMockCompletion(request, response) {
     }
 
     if (hasToolResult) {
+      const isClickGoal =
+        typeof userMessage?.content === 'string' &&
+        userMessage.content.includes('CLICK_PLAYGROUND');
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(
         JSON.stringify({
           choices: [
             {
               message: {
-                content: '已填写客户姓名和手机号；表单尚未提交。',
+                content: isClickGoal
+                  ? '已点击左侧柱子；计数已增加。'
+                  : '已填写客户姓名和手机号；表单尚未提交。',
               },
             },
           ],
@@ -172,6 +181,47 @@ async function respondWithMockCompletion(request, response) {
     const snapshot = snapshotMatch?.[1]
       ? JSON.parse(snapshotMatch[1])
       : undefined;
+
+    if (
+      typeof userMessage?.content === 'string' &&
+      userMessage.content.includes('CLICK_PLAYGROUND')
+    ) {
+      const clickable = snapshot?.actions?.find(
+        (action) =>
+          action.role === 'clickable' && action.label.includes('data-peg'),
+      );
+      if (!clickable?.nodeId) {
+        response.writeHead(422, { 'content-type': 'application/json' });
+        response.end(
+          JSON.stringify({ error: 'clickable peg missing from snapshot' }),
+        );
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_click_peg',
+                    type: 'function',
+                    function: {
+                      name: 'page_click',
+                      arguments: JSON.stringify({ nodeId: clickable.nodeId }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+
     const fields = snapshot?.forms?.flatMap((form) => form.fields) ?? [];
     const nameField = fields.find((field) => field.name === 'name');
     const phoneField = fields.find((field) => field.name === 'phone');
