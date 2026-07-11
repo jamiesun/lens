@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures';
 import { openObserver } from './helpers';
-import { customerFixtureUrl, fixtureOrigin } from './constants';
+import { customerFixtureUrl } from './constants';
 
 test('shows a redacted semantic snapshot for an authorized page', async ({
   context,
@@ -36,14 +36,14 @@ test('shows a redacted semantic snapshot for an authorized page', async ({
   );
 });
 
-test('blocks snapshot injection when the page origin is not authorized', async ({
+test('blocks snapshot injection on protected browser surfaces', async ({
   context,
   extensionId,
 }) => {
   const { panel } = await openObserver(
     context,
     extensionId,
-    customerFixtureUrl.replace(fixtureOrigin, 'http://localhost:4174'),
+    'chrome://extensions/',
   );
 
   await expect(panel.getByTestId('scan-status')).toHaveAttribute(

@@ -70,6 +70,20 @@ function dependencies(
         outcomes: [{ nodeId: 'node_name', status: 'filled' }],
       },
     }),
+    runScreenshot: vi.fn().mockResolvedValue({
+      type: 'lens.page.screenshot.response',
+      requestId: 'screenshot-request',
+      ok: true,
+      screenshot: {
+        dataUrl: 'data:image/png;base64,AA==',
+        filename: 'lens-viewport.png',
+        mimeType: 'image/png',
+        width: 800,
+        height: 600,
+        mode: 'viewport',
+        truncated: false,
+      },
+    }),
     complete: vi
       .fn()
       .mockResolvedValueOnce({
@@ -272,6 +286,59 @@ describe('runAgentGoal', () => {
     const reply = events.find((event) => event.kind === 'assistant');
     expect(reply).toMatchObject({ kind: 'assistant' });
     expect(reply?.kind === 'assistant' ? reply.text : '').toHaveLength(8_000);
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('routes full-page screenshot requests and emits a downloadable image', async () => {
+    const deps = dependencies({
+      runScreenshot: vi.fn().mockResolvedValue({
+        type: 'lens.page.screenshot.response',
+        requestId: 'screenshot-request',
+        ok: true,
+        screenshot: {
+          dataUrl: 'data:image/jpeg;base64,AA==',
+          filename: 'lens-full-page.jpg',
+          mimeType: 'image/jpeg',
+          width: 800,
+          height: 2_400,
+          mode: 'full-page',
+          truncated: false,
+        },
+      }),
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: null,
+          toolCalls: [
+            {
+              id: 'call_screenshot',
+              name: 'page_screenshot',
+              arguments: '{"mode":"full-page"}',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: '长截图已生成。',
+          toolCalls: [],
+        }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('截取整页长图', deps, (event) => events.push(event));
+
+    expect(deps.runScreenshot).toHaveBeenCalledWith('full-page', undefined);
+    expect(events).toContainEqual({
+      kind: 'screenshot',
+      screenshot: {
+        dataUrl: 'data:image/jpeg;base64,AA==',
+        filename: 'lens-full-page.jpg',
+        mimeType: 'image/jpeg',
+        width: 800,
+        height: 2_400,
+        mode: 'full-page',
+        truncated: false,
+      },
+    });
     expect(events.at(-1)).toEqual({ kind: 'done' });
   });
 });

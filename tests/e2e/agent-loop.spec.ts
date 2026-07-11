@@ -159,7 +159,27 @@ test('keeps a multi-turn chat history and clears it on new chat', async ({
   await expect(
     panel.locator('[data-chat-role="assistant"]').last(),
   ).toContainText('海蓝');
+  await panel.reload();
+  await expect(panel.locator('[data-chat-role="user"]')).toHaveCount(2);
+  await expect(panel.locator('[data-chat-role="assistant"]')).toHaveCount(2);
+
+  await panel.getByTestId('history-toggle').click();
+  await expect(panel.getByTestId('history-entry')).toHaveCount(1);
+  await panel.getByLabel('关闭历史记录').click();
   await panel.getByTestId('new-chat').click();
   await expect(panel.locator('[data-chat-role]')).toHaveCount(0);
+  await expect(panel.getByTestId('chat-welcome')).toBeVisible();
+
+  await panel.getByTestId('history-toggle').click();
+  await panel.getByTestId('history-entry').click();
+  await expect(panel.locator('[data-chat-role="user"]')).toHaveCount(2);
+  await expect(
+    panel.locator('[data-chat-role="assistant"]').last(),
+  ).toContainText('海蓝');
+
+  await panel.getByTestId('history-toggle').click();
+  await panel.getByRole('button', { name: /删除 记住暗号/ }).click();
+  await expect(panel.getByTestId('history-entry')).toHaveCount(0);
+  await panel.getByLabel('关闭历史记录').click();
   await expect(panel.getByTestId('chat-welcome')).toBeVisible();
 });

@@ -11,6 +11,11 @@ import {
   type VaultState,
 } from '../protocol/vault-messages';
 import type { ProviderConfig } from '../protocol/provider';
+import {
+  ScreenshotResponseSchema,
+  type ScreenshotMode,
+  type ScreenshotResult,
+} from '../protocol/screenshot';
 
 type VaultRequestWithoutId = VaultRequest extends infer Request
   ? Request extends VaultRequest
@@ -171,6 +176,30 @@ export async function clearVault(
     }
   }
   return { state, permissionWarning };
+}
+
+export async function requestPageScreenshot(
+  mode: ScreenshotMode,
+): Promise<ScreenshotResult> {
+  const response = await browser.runtime.sendMessage({
+    type: 'lens.page.screenshot.request',
+    requestId: createRequestId(),
+    mode,
+  });
+  const parsed = ScreenshotResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    throw new AgentClientError(
+      'INVALID_RESPONSE',
+      'The Lens screenshot runtime returned an invalid response.',
+    );
+  }
+  if (!parsed.data.ok) {
+    throw new AgentClientError(
+      parsed.data.error.code,
+      parsed.data.error.message,
+    );
+  }
+  return parsed.data.screenshot;
 }
 
 export interface AgentRunHandle {

@@ -9,6 +9,10 @@ import {
   createExtensionVaultStorage,
   SecretVault,
 } from '../src/background/secret-vault';
+import {
+  handleScreenshotRequest,
+  type ScreenshotDependencies,
+} from '../src/background/screenshot-service';
 import { handleVaultRequest } from '../src/background/vault-service';
 import {
   AGENT_PORT_NAME,
@@ -20,6 +24,10 @@ import type {
   SnapshotResponse,
 } from '../src/protocol/messages';
 import { VaultRequestSchema } from '../src/protocol/vault-messages';
+import {
+  ScreenshotRequestSchema,
+  type ScreenshotResponse,
+} from '../src/protocol/screenshot';
 
 export default defineBackground(() => {
   void browser.sidePanel
@@ -57,6 +65,13 @@ export default defineBackground(() => {
       return browser.tabs.sendMessage(tabId, command);
     },
   };
+  const screenshotDependencies: ScreenshotDependencies = {
+    getActiveTab: pageDependencies.getActiveTab,
+    ensurePageAgent: pageDependencies.ensurePageAgent,
+    sendPageCommand: pageDependencies.sendPageCommand,
+    captureVisibleTab: (windowId, options) =>
+      browser.tabs.captureVisibleTab(windowId, options),
+  };
   const vault = new SecretVault(createExtensionVaultStorage(browser.storage));
   const activeRuns = new Map<AbortController, Promise<void>>();
 
@@ -80,10 +95,13 @@ export default defineBackground(() => {
           'lens.vault.lock.request',
           'lens.vault.clear.request',
         ].includes(vaultRequest.data.type);
+      const screenshotRequest = ScreenshotRequestSchema.safeParse(message);
       const response = vaultRequest.success
         ? (isCredentialBarrier ? cancelAllRuns() : Promise.resolve()).then(() =>
             handleVaultRequest(message, vault),
           )
+        : screenshotRequest.success
+          ? handleScreenshotRequest(message, screenshotDependencies)
         : handleRuntimeRequest(message, pageDependencies);
       void response.then(sendResponse);
       return true;
@@ -118,6 +136,7 @@ export default defineBackground(() => {
         activeRun?.abort();
         return;
       }
+      const runRequest = parsed.data;
 
       if (activeRun) {
         emit({
@@ -131,53 +150,106 @@ export default defineBackground(() => {
       activeRun = new AbortController();
       const controller = activeRun;
 
-      const runSnapshot = async (): Promise<SnapshotResponse> => {
-        const response = await handleRuntimeRequest(
-          {
-            type: 'lens.page.snapshot.request',
-            requestId: crypto.randomUUID(),
-          },
-          pageDependencies,
-        );
-        return response as SnapshotResponse;
-      };
+      const completion = (async () => {
+        const pinnedTab = await pageDependencies.getActiveTab();
+        if (
+          typeof pinnedTab?.id !== 'number' ||
+          typeof pinnedTab.windowId !== 'number'
+        ) {
+          emit({
+            kind: 'error',
+            code: 'TOOL_ERROR',
+            message: 'Lens could not pin the active page for this run.',
+          });
+          return;
+        }
 
-      const runFill = async (input: {
-        snapshotId: string;
-        generation: number;
-        fields: { nodeId: string; value: string }[];
-      }): Promise<FillResponse> => {
-        const response = await handleRuntimeRequest(
-          {
-            type: 'lens.page.fill.request',
-            requestId: crypto.randomUUID(),
-            ...input,
-          },
-          pageDependencies,
-        );
-        return response as FillResponse;
-      };
+        const getPinnedActiveTab = async () => {
+          const current = await pageDependencies.getActiveTab();
+          if (
+            !current ||
+            current?.id !== pinnedTab.id ||
+            current.windowId !== pinnedTab.windowId ||
+            (pinnedTab.url &&
+              current.url &&
+              current.url !== pinnedTab.url)
+          ) {
+            throw new Error(
+              'The active page changed after this Agent run started.',
+            );
+          }
+          return current;
+        };
+        const pinnedPageDependencies: PageServiceDependencies = {
+          ...pageDependencies,
+          getActiveTab: getPinnedActiveTab,
+        };
+        const pinnedScreenshotDependencies: ScreenshotDependencies = {
+          ...screenshotDependencies,
+          getActiveTab: getPinnedActiveTab,
+        };
 
-      const completion = runAgentGoal(
-        parsed.data.goal,
-        {
-          vault,
-          runSnapshot,
-          runFill,
-          complete: ({ provider, apiKey, messages, tools, signal }) =>
-            chatComplete({
-              baseUrl: provider.baseUrl,
-              model: provider.model,
-              apiKey,
-              messages,
-              tools,
-              signal,
-            }),
-        },
-        emit,
-        controller.signal,
-        parsed.data.history,
-      )
+        const runSnapshot = async (): Promise<SnapshotResponse> => {
+          const response = await handleRuntimeRequest(
+            {
+              type: 'lens.page.snapshot.request',
+              requestId: crypto.randomUUID(),
+            },
+            pinnedPageDependencies,
+          );
+          return response as SnapshotResponse;
+        };
+        const runFill = async (input: {
+          snapshotId: string;
+          generation: number;
+          fields: { nodeId: string; value: string }[];
+        }): Promise<FillResponse> => {
+          const response = await handleRuntimeRequest(
+            {
+              type: 'lens.page.fill.request',
+              requestId: crypto.randomUUID(),
+              ...input,
+            },
+            pinnedPageDependencies,
+          );
+          return response as FillResponse;
+        };
+        const runScreenshot = async (
+          mode: 'viewport' | 'full-page',
+          signal?: AbortSignal,
+        ): Promise<ScreenshotResponse> =>
+          handleScreenshotRequest(
+            {
+              type: 'lens.page.screenshot.request',
+              requestId: crypto.randomUUID(),
+              mode,
+            },
+            pinnedScreenshotDependencies,
+            signal,
+          );
+
+        await runAgentGoal(
+          runRequest.goal,
+          {
+            vault,
+            runSnapshot,
+            runFill,
+            runScreenshot,
+            complete: ({ provider, apiKey, messages, tools, signal }) =>
+              chatComplete({
+                baseUrl: provider.baseUrl,
+                model: provider.model,
+                apiKey,
+                messages,
+                tools,
+                signal,
+              }),
+          },
+          emit,
+          controller.signal,
+          runRequest.history,
+        );
+      })()
         .catch((error: unknown) => {
           emit({
             kind: 'error',

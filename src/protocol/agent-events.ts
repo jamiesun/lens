@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ScreenshotResultSchema } from './screenshot';
 
 export const AgentRunRequestSchema = z
   .object({
@@ -39,10 +40,16 @@ export const AgentEventSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('tool'),
-      tool: z.enum(['page.snapshot', 'page.form.fill']),
+      tool: z.enum(['page.snapshot', 'page.form.fill', 'page.screenshot']),
       status: z.enum(['started', 'completed', 'failed']),
       detail: z.string().max(300),
       affected: z.number().int().nonnegative().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('screenshot'),
+      screenshot: ScreenshotResultSchema,
     })
     .strict(),
   z

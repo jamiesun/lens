@@ -15,7 +15,7 @@ interface ExtensionFixtures {
 
 export const test = base.extend<ExtensionFixtures>({
   context: async ({}, use) => {
-    const extensionPath = path.resolve('.output/chrome-mv3-test');
+    const extensionPath = path.resolve('.output/chrome-mv3-e2e');
     const userDataDirectory = await mkdtemp(
       path.join(tmpdir(), 'lens-playwright-'),
     );

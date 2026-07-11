@@ -27,14 +27,6 @@ function isEditableField(field: FormFieldDescriptor): boolean {
   return !field.sensitive && EDITABLE_FIELD_TYPES.has(field.fieldType);
 }
 
-function SparkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 2c1.2 5.3 4.7 8.8 10 10-5.3 1.2-8.8 4.7-10 10-1.2-5.3-4.7-8.8-10-10 5.3-1.2 8.8-4.7 10-10Z" />
-    </svg>
-  );
-}
-
 function SettingsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -58,6 +50,15 @@ function NewChatIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
       <path d="m14 4 6 6M17 3l4 4-8 8-4 1 1-4 7-7Z" />
+    </svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5M12 7v5l3 2" />
     </svg>
   );
 }
@@ -176,6 +177,9 @@ function PageContextDrawer({
   const outcomes = useObserverStore((state) => state.fillOutcomes);
   const scanPage = useObserverStore((state) => state.scanPage);
   const fillForm = useObserverStore((state) => state.fillForm);
+  const screenshotBusy = useAgentStore((state) => state.screenshotBusy);
+  const screenshotError = useAgentStore((state) => state.screenshotError);
+  const captureScreenshot = useAgentStore((state) => state.captureScreenshot);
   const dialogRef = useModalFocus<HTMLElement>(open, onClose);
 
   if (!open) {
@@ -233,6 +237,30 @@ function PageContextDrawer({
             <strong>{error.title}</strong>
             <p>{error.message}</p>
           </div>
+        )}
+
+        <div className="capture-actions">
+          <button
+            type="button"
+            disabled={screenshotBusy || phase !== 'ready'}
+            data-testid="capture-viewport"
+            onClick={() => void captureScreenshot('viewport')}
+          >
+            {screenshotBusy ? '正在截图…' : '截取当前画面'}
+          </button>
+          <button
+            type="button"
+            disabled={screenshotBusy || phase !== 'ready'}
+            data-testid="capture-full-page"
+            onClick={() => void captureScreenshot('full-page')}
+          >
+            {screenshotBusy ? '正在拼接…' : '截取整页长图'}
+          </button>
+        </div>
+        {screenshotError && (
+          <p className="capture-error" role="alert">
+            {screenshotError}
+          </p>
         )}
 
         {snapshot && phase === 'ready' && (
@@ -294,6 +322,106 @@ function PageContextDrawer({
   );
 }
 
+function HistoryDrawer({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const conversations = useAgentStore((state) => state.conversations);
+  const currentId = useAgentStore((state) => state.currentConversationId);
+  const busy = useAgentStore((state) => state.historyBusy);
+  const error = useAgentStore((state) => state.historyError);
+  const loadConversation = useAgentStore((state) => state.loadConversation);
+  const deleteConversation = useAgentStore((state) => state.deleteConversation);
+  const dialogRef = useModalFocus<HTMLElement>(open, onClose);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div
+      className="drawer-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) {
+          onClose();
+        }
+      }}
+    >
+      <aside
+        ref={dialogRef}
+        tabIndex={-1}
+        className="context-drawer history-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="history-title"
+        data-testid="history-drawer"
+      >
+        <header className="drawer-header">
+          <div>
+            <h2 id="history-title">历史记录</h2>
+            <p>仅保存在本机，最多保留 30 个会话</p>
+          </div>
+          <button
+            type="button"
+            aria-label="关闭历史记录"
+            disabled={busy}
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
+        </header>
+
+        {error && <p className="history-error">{error}</p>}
+        {conversations.length === 0 ? (
+          <div className="history-empty">
+            <HistoryIcon />
+            <p>还没有历史会话</p>
+          </div>
+        ) : (
+          <ol className="history-list">
+            {conversations.map((conversation) => (
+              <li
+                key={conversation.id}
+                className={
+                  conversation.id === currentId ? 'is-current' : undefined
+                }
+              >
+                <button
+                  type="button"
+                  className="history-open"
+                  disabled={busy}
+                  data-testid="history-entry"
+                  onClick={() => {
+                    void loadConversation(conversation.id).then(onClose);
+                  }}
+                >
+                  <strong>{conversation.title}</strong>
+                  <span>
+                    {new Date(conversation.updatedAt).toLocaleString()} ·{' '}
+                    {conversation.messageCount} 条消息
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="history-delete"
+                  aria-label={`删除 ${conversation.title}`}
+                  disabled={busy}
+                  onClick={() => void deleteConversation(conversation.id)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
+      </aside>
+    </div>
+  );
+}
+
 function ToolActivity() {
   const phase = useAgentStore((state) => state.phase);
   const status = useAgentStore((state) => state.runStatus);
@@ -307,7 +435,7 @@ function ToolActivity() {
   return (
     <div className="assistant-row">
       <span className="assistant-mark">
-        <SparkIcon />
+        <img src="/lens-logo.svg" alt="" />
       </span>
       <div className="activity-block">
         {phase === 'running' && (
@@ -338,10 +466,12 @@ function ToolActivity() {
 export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const chatEnd = useRef<HTMLDivElement>(null);
 
   const vault = useAgentStore((state) => state.vault);
+  const initialized = useAgentStore((state) => state.initialized);
   const initializeAgent = useAgentStore((state) => state.initialize);
   const agentPhase = useAgentStore((state) => state.phase);
   const messages = useAgentStore((state) => state.messages);
@@ -360,8 +490,13 @@ export default function App() {
 
   useEffect(() => {
     void initializeAgent();
-    void scanPage();
-  }, [initializeAgent, scanPage]);
+  }, [initializeAgent]);
+
+  useEffect(() => {
+    if (initialized) {
+      void scanPage();
+    }
+  }, [initialized, scanPage]);
 
   useEffect(() => {
     if (agentPhase === 'done') {
@@ -397,6 +532,15 @@ export default function App() {
     chatEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, agentPhase]);
 
+  if (!initialized) {
+    return (
+      <div className="chat-app chat-app--loading" data-testid="app-loading">
+        <img src="/lens-logo.svg" alt="" className="loading-logo" />
+        <span>正在加载本地会话…</span>
+      </div>
+    );
+  }
+
   const submitGoal = (goal: string) => {
     const normalized = goal.trim();
     if (!normalized || vault?.status !== 'unlocked' || agentPhase === 'running') {
@@ -418,10 +562,13 @@ export default function App() {
     <div className="chat-app">
       <div
         className="chat-frame"
-        aria-hidden={settingsOpen || contextOpen ? true : undefined}
+        aria-hidden={
+          settingsOpen || contextOpen || historyOpen ? true : undefined
+        }
       >
         <header className="chat-header">
         <div className="chat-title">
+          <img src="/lens-logo.svg" alt="" className="lens-logo" />
           <h1>Lens</h1>
           <span
             className={`page-status page-status--${observerPhase}`}
@@ -441,11 +588,25 @@ export default function App() {
           </button>
           <button
             type="button"
+            aria-label="历史记录"
+            title="历史记录"
+            data-testid="history-toggle"
+            onClick={() => {
+              setSettingsOpen(false);
+              setContextOpen(false);
+              setHistoryOpen(true);
+            }}
+          >
+            <HistoryIcon />
+          </button>
+          <button
+            type="button"
             aria-label="页面信息"
             title="页面信息"
             data-testid="context-toggle"
             onClick={() => {
               setSettingsOpen(false);
+              setHistoryOpen(false);
               setContextOpen(true);
             }}
           >
@@ -459,6 +620,7 @@ export default function App() {
             data-vault-status={vault?.status ?? 'loading'}
             onClick={() => {
               setContextOpen(false);
+              setHistoryOpen(false);
               setSettingsOpen(true);
             }}
           >
@@ -471,7 +633,7 @@ export default function App() {
         {messages.length === 0 && (
           <div className="welcome-block" data-testid="chat-welcome">
             <span className="welcome-spark">
-              <SparkIcon />
+              <img src="/lens-logo.svg" alt="" />
             </span>
             <h2>想让我在这个页面做什么？</h2>
             <p>
@@ -484,6 +646,7 @@ export default function App() {
                 className="setup-prompt"
                 onClick={() => {
                   setContextOpen(false);
+                  setHistoryOpen(false);
                   setSettingsOpen(true);
                 }}
               >
@@ -521,13 +684,42 @@ export default function App() {
               data-chat-role="assistant"
             >
               <span className="assistant-mark">
-                <SparkIcon />
+                <img src="/lens-logo.svg" alt="" />
               </span>
               <div
                 className="assistant-message"
                 data-testid={index === messages.length - 1 ? 'assistant-reply' : undefined}
               >
                 {message.text}
+                {message.screenshot && (
+                  <figure
+                    className="screenshot-card"
+                    data-screenshot-mode={message.screenshot.mode}
+                  >
+                    <img
+                      src={message.screenshot.dataUrl}
+                      alt={
+                        message.screenshot.mode === 'full-page'
+                          ? '整页长截图预览'
+                          : '当前页面截图预览'
+                      }
+                      data-testid="screenshot-preview"
+                    />
+                    <figcaption>
+                      <span>
+                        {message.screenshot.width} × {message.screenshot.height}
+                        {message.screenshot.truncated ? ' · 已达到长度上限' : ''}
+                      </span>
+                      <a
+                        href={message.screenshot.dataUrl}
+                        download={message.screenshot.filename}
+                        data-testid="screenshot-download"
+                      >
+                        下载
+                      </a>
+                    </figcaption>
+                  </figure>
+                )}
               </div>
             </div>
           ),
@@ -566,6 +758,7 @@ export default function App() {
           data-testid="context-chip"
           onClick={() => {
             setSettingsOpen(false);
+            setHistoryOpen(false);
             setContextOpen(true);
           }}
         >
@@ -608,6 +801,7 @@ export default function App() {
               aria-label="模型设置"
               onClick={() => {
                 setContextOpen(false);
+                setHistoryOpen(false);
                 setSettingsOpen(true);
               }}
             >
@@ -656,6 +850,10 @@ export default function App() {
       <PageContextDrawer
         open={contextOpen}
         onClose={() => setContextOpen(false)}
+      />
+      <HistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
       />
     </div>
   );

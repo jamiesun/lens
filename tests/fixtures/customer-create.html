@@ -49,6 +49,24 @@
         width: 100%;
         margin-top: 24px;
       }
+
+      .long-page-marker {
+        display: flex;
+        height: 1700px;
+        align-items: flex-end;
+        margin-top: 24px;
+        padding: 24px;
+        border: 1px dashed #999;
+      }
+
+      .fixed-capture-marker {
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        padding: 8px 12px;
+        background: #172019;
+        color: white;
+      }
     </style>
   </head>
   <body>
@@ -113,6 +131,10 @@
       </table>
 
       <p role="status">Draft is not saved.</p>
+      <div class="long-page-marker" data-agent-summary>
+        End of long screenshot fixture.
+      </div>
+      <div class="fixed-capture-marker">Fixed marker</div>
     </main>
   </body>
 </html>

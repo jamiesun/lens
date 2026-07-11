@@ -117,6 +117,36 @@ async function respondWithMockCompletion(request, response) {
       }
     }
 
+    if (
+      !hasToolResult &&
+      typeof userMessage?.content === 'string' &&
+      userMessage.content.includes('SCREENSHOT_FULL')
+    ) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call_full_screenshot',
+                    type: 'function',
+                    function: {
+                      name: 'page_screenshot',
+                      arguments: JSON.stringify({ mode: 'full-page' }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+
     if (hasToolResult) {
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(
