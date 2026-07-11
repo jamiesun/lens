@@ -42,6 +42,15 @@ npm run check
 npm run test:e2e
 ```
 
+### 构建与打包
+
+```sh
+npm run build
+npm run package
+```
+
+`npm run build` 生成可直接加载的解压扩展目录 `.output/chrome-mv3`；`npm run package` 生成用于分发或上传应用商店的 ZIP 包。
+
 ## 质量与验收
 
 所有一级业务能力都必须满足 [`docs/roadmap.md`](docs/roadmap.md#验收矩阵业务能力覆盖矩阵) 中的覆盖底线：至少具备 Happy Path E2E；高风险能力还必须覆盖失败路径、权限边界以及状态修改失败后的恢复或回滚。新增一级能力时必须同步更新验收矩阵，否则变更不完整。
