@@ -55,7 +55,7 @@ test('blocks snapshot injection on protected browser surfaces', async ({
     'PAGE_ACCESS_DENIED',
   );
   await expect(panel.getByTestId('error-banner')).toContainText(
-    'Page access not armed',
+    '页面访问未激活',
   );
   await expect(panel.getByTestId('page-title')).toHaveCount(0);
 });
