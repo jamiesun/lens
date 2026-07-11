@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "test:e2e": "npm run build:e2e && playwright test",
     "check": "npm run compile && npm run test && npm run build",
+    "package": "npm run zip",
     "zip": "wxt zip",
     "postinstall": "wxt prepare"
   },
