@@ -61,9 +61,9 @@ function formatError(error: unknown): ObserverError {
     case 'PAGE_ACCESS_DENIED':
       return {
         code: error.code,
-        title: 'Page access not armed',
+        title: '页面访问未激活',
         message:
-          'Open Lens from the browser toolbar on this page, then scan again.',
+          '点击浏览器工具栏中的 Lens 图标以授权当前页面；之后可在「页面信息」里开启长期授权，避免每次重复。',
       };
     case 'UNSUPPORTED_PAGE':
       return {

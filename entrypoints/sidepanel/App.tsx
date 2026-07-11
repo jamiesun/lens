@@ -10,6 +10,7 @@ import type {
 } from '../../src/protocol/page-commands';
 import { useAgentStore } from '../../src/sidepanel/agent-store';
 import { useObserverStore } from '../../src/sidepanel/observer-store';
+import { useSiteAccessStore } from '../../src/sidepanel/site-access-store';
 import { useModalFocus } from '../../src/sidepanel/use-modal-focus';
 import { ProviderSettings } from './ProviderSettings';
 
@@ -162,6 +163,72 @@ function FormEditor({
   );
 }
 
+function SiteAccessSection() {
+  const access = useSiteAccessStore((state) => state.access);
+  const busy = useSiteAccessStore((state) => state.busy);
+  const notice = useSiteAccessStore((state) => state.notice);
+  const grant = useSiteAccessStore((state) => state.grant);
+  const revoke = useSiteAccessStore((state) => state.revoke);
+
+  if (access.kind === 'unsupported') {
+    return null;
+  }
+
+  const host = 'host' in access ? access.host : undefined;
+  const statusLabel =
+    access.kind === 'persistent'
+      ? '已长期授权，切换标签页后仍可访问'
+      : access.kind === 'temporary'
+        ? '临时访问，仅本次有效'
+        : access.kind === 'unrequestable'
+          ? '非本机 HTTP 站点只能临时访问'
+          : '未授权，点击浏览器工具栏中的 Lens 图标以授权当前页面';
+
+  return (
+    <section
+      className="site-access"
+      data-testid="site-access"
+      data-status={access.kind}
+    >
+      <div className="site-access__row">
+        <div className="site-access__meta">
+          <strong>{host ?? '站点访问'}</strong>
+          <span>{statusLabel}</span>
+        </div>
+        {access.kind === 'temporary' && (
+          <button
+            type="button"
+            data-testid="grant-site-access"
+            disabled={busy}
+            onClick={() => void grant()}
+          >
+            {busy ? '请求中…' : '长期授权'}
+          </button>
+        )}
+        {access.kind === 'persistent' && (
+          <button
+            type="button"
+            data-testid="revoke-site-access"
+            disabled={busy}
+            onClick={() => void revoke()}
+          >
+            {busy ? '处理中…' : '取消授权'}
+          </button>
+        )}
+      </div>
+      {notice && (
+        <p
+          className="site-access__notice"
+          data-testid="site-access-notice"
+          role="status"
+        >
+          {notice}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function PageContextDrawer({
   open,
   onClose,
@@ -226,6 +293,8 @@ function PageContextDrawer({
         >
           {phase === 'scanning' ? '正在读取页面…' : snapshot ? '重新读取页面' : '读取页面'}
         </button>
+
+        <SiteAccessSection />
 
         {error && (
           <div
@@ -487,6 +556,7 @@ export default function App() {
   const scanPage = useObserverStore((state) => state.scanPage);
   const invalidatePage = useObserverStore((state) => state.invalidatePage);
   const manualWriteCount = useObserverStore((state) => state.localWriteCount);
+  const refreshSiteAccess = useSiteAccessStore((state) => state.refresh);
 
   useEffect(() => {
     void initializeAgent();
@@ -503,6 +573,33 @@ export default function App() {
       void scanPage();
     }
   }, [agentPhase, scanPage]);
+
+  useEffect(() => {
+    if (observerPhase === 'ready' || observerPhase === 'error') {
+      void refreshSiteAccess();
+    }
+  }, [observerPhase, refreshSiteAccess]);
+
+  useEffect(() => {
+    const handleAdded = () => {
+      void refreshSiteAccess();
+      const observer = useObserverStore.getState();
+      if (
+        observer.phase === 'error' &&
+        observer.error?.code === 'PAGE_ACCESS_DENIED'
+      ) {
+        void observer.scanPage();
+      }
+    };
+    const handleRemoved = () => void refreshSiteAccess();
+
+    browser.permissions.onAdded.addListener(handleAdded);
+    browser.permissions.onRemoved.addListener(handleRemoved);
+    return () => {
+      browser.permissions.onAdded.removeListener(handleAdded);
+      browser.permissions.onRemoved.removeListener(handleRemoved);
+    };
+  }, [refreshSiteAccess]);
 
   useEffect(() => {
     const handleActivated = () => invalidatePage();
