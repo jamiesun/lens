@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { ProviderConfigSchema } from '../../src/protocol/provider';
 import { useAgentStore } from '../../src/sidepanel/agent-store';
+import { useModalFocus } from '../../src/sidepanel/use-modal-focus';
 
-export function ProviderSettings({ open }: { open: boolean }) {
+export function ProviderSettings({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   const vault = useAgentStore((state) => state.vault);
   const busy = useAgentStore((state) => state.vaultBusy);
   const error = useAgentStore((state) => state.vaultError);
@@ -18,6 +25,12 @@ export function ProviderSettings({ open }: { open: boolean }) {
   const [password, setPassword] = useState('');
   const [localError, setLocalError] = useState<string>();
   const [confirmClear, setConfirmClear] = useState(false);
+  const requestClose = () => {
+    if (!busy) {
+      onClose();
+    }
+  };
+  const dialogRef = useModalFocus<HTMLElement>(open, requestClose);
 
   useEffect(() => {
     if (vault?.provider) {
@@ -41,10 +54,13 @@ export function ProviderSettings({ open }: { open: boolean }) {
       return;
     }
     setLocalError(undefined);
-    const saved = await configure(parsed.data, apiKey, password);
-    if (saved) {
+    const result = await configure(parsed.data, apiKey, password);
+    if (result.saved) {
       setApiKey('');
       setPassword('');
+      if (!result.warning) {
+        onClose();
+      }
     }
   };
 
@@ -56,23 +72,50 @@ export function ProviderSettings({ open }: { open: boolean }) {
     setLocalError(undefined);
     if (await unlock(password)) {
       setPassword('');
+      onClose();
     }
   };
 
   return (
-    <section className="settings-card" data-testid="provider-settings">
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          requestClose();
+        }
+      }}
+    >
+      <section
+        ref={dialogRef}
+        tabIndex={-1}
+        className="settings-card"
+        data-testid="provider-settings"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="provider-settings-title"
+      >
       <div className="settings-card__header">
         <div>
-          <p className="section-index">00 / PROVIDER</p>
-          <h2>Local credential vault</h2>
+          <h2 id="provider-settings-title">模型与密钥</h2>
+          <p>密钥只加密保存在本机，浏览器重启后需要重新解锁。</p>
         </div>
-        <span
-          className={`vault-state vault-state--${vault?.status ?? 'loading'}`}
-          data-testid="vault-status"
+        <button
+          type="button"
+          className="modal-close"
+          aria-label="关闭设置"
+          disabled={busy}
+          onClick={requestClose}
         >
-          {vault?.status ?? 'loading'}
-        </span>
+          ×
+        </button>
       </div>
+      <span
+        className={`vault-state vault-state--${vault?.status ?? 'loading'}`}
+        data-testid="vault-status"
+      >
+        {vault?.status ?? 'loading'}
+      </span>
 
       {vault?.status === 'locked' ? (
         <div className="unlock-row">
@@ -97,7 +140,7 @@ export function ProviderSettings({ open }: { open: boolean }) {
       ) : (
         <div className="settings-form">
           <label>
-            <span>BASE URL</span>
+            <span>API 地址</span>
             <input
               value={baseUrl}
               data-testid="provider-base-url"
@@ -106,7 +149,7 @@ export function ProviderSettings({ open }: { open: boolean }) {
             />
           </label>
           <label>
-            <span>MODEL</span>
+            <span>模型</span>
             <input
               value={model}
               data-testid="provider-model"
@@ -115,7 +158,7 @@ export function ProviderSettings({ open }: { open: boolean }) {
             />
           </label>
           <label>
-            <span>API KEY</span>
+            <span>API Key</span>
             <input
               type="password"
               value={apiKey}
@@ -126,7 +169,7 @@ export function ProviderSettings({ open }: { open: boolean }) {
             />
           </label>
           <label>
-            <span>MASTER PASSWORD</span>
+            <span>本地主密码</span>
             <input
               type="password"
               value={password}
@@ -143,7 +186,7 @@ export function ProviderSettings({ open }: { open: boolean }) {
             data-testid="save-provider"
             onClick={() => void handleConfigure()}
           >
-            {busy ? 'ENCRYPTING' : 'SAVE + UNLOCK'}
+            {busy ? '正在加密…' : '保存并解锁'}
           </button>
         </div>
       )}
@@ -168,7 +211,7 @@ export function ProviderSettings({ open }: { open: boolean }) {
                 disabled={busy}
                 onClick={() => void lock()}
               >
-                LOCK
+                锁定
               </button>
             )}
             <button
@@ -185,16 +228,16 @@ export function ProviderSettings({ open }: { open: boolean }) {
                 }
               }}
             >
-              {confirmClear ? 'CONFIRM CLEAR' : 'CLEAR'}
+              {confirmClear ? '确认清除' : '清除'}
             </button>
           </div>
         </div>
       )}
 
       <p className="settings-note">
-        API key: AES-GCM encrypted in local storage. Unlock key: session memory
-        only. HTTPS or loopback providers only.
+        API Key 使用 AES-GCM 加密；解锁密钥只保留在当前浏览器会话中。
       </p>
-    </section>
+      </section>
+    </div>
   );
 }

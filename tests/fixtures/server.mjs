@@ -62,14 +62,56 @@ async function respondWithMockCompletion(request, response) {
     const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
     const hasToolResult = messages.some((message) => message.role === 'tool');
-    const userMessage = messages.find((message) => message.role === 'user');
+    const userMessages = messages.filter((message) => message.role === 'user');
+    const userMessage = userMessages.at(-1);
+
+    if (
+      !hasToolResult &&
+      typeof userMessage?.content === 'string' &&
+      userMessage.content.includes('记住暗号：海蓝')
+    ) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [{ message: { content: '记住了：海蓝。' } }],
+        }),
+      );
+      return;
+    }
+
+    if (
+      !hasToolResult &&
+      typeof userMessage?.content === 'string' &&
+      userMessage.content.includes('刚才的暗号是什么')
+    ) {
+      const hasHistory = userMessages
+        .slice(0, -1)
+        .some(
+          (message) =>
+            typeof message.content === 'string' &&
+            message.content.includes('记住暗号：海蓝'),
+        );
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: hasHistory ? '刚才的暗号是海蓝。' : '没有收到上文。',
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
 
     if (
       !hasToolResult &&
       typeof userMessage?.content === 'string' &&
       userMessage.content.includes('SLOW_AGENT_TEST')
     ) {
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
       if (response.destroyed) {
         return;
       }

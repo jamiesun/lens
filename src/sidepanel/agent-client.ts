@@ -3,6 +3,7 @@ import {
   AGENT_PORT_NAME,
   AgentEventSchema,
   type AgentEvent,
+  type AgentHistoryItem,
 } from '../protocol/agent-events';
 import {
   VaultResponseSchema,
@@ -178,6 +179,7 @@ export interface AgentRunHandle {
 
 export function startAgentRun(
   goal: string,
+  history: AgentHistoryItem[],
   onEvent: (event: AgentEvent) => void,
   onUnexpectedDisconnect: () => void,
 ): AgentRunHandle {
@@ -214,6 +216,7 @@ export function startAgentRun(
   port.postMessage({
     type: 'lens.agent.run',
     goal,
+    history,
   });
 
   return {

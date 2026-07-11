@@ -10,6 +10,7 @@ test('shows a redacted semantic snapshot for an authorized page', async ({
     context,
     extensionId,
     customerFixtureUrl,
+    { keepContextOpen: true },
   );
 
   await expect(panel.getByTestId('scan-status')).toHaveAttribute(
@@ -19,10 +20,12 @@ test('shows a redacted semantic snapshot for an authorized page', async ({
   await expect(panel.getByTestId('page-title')).toHaveText(
     'Customer Console / Create',
   );
-  await expect(panel.getByTestId('form-count')).toHaveText('01');
+  await expect(panel.getByTestId('form-count')).toHaveText('1');
+  await panel.getByTestId('manual-tools-toggle').click();
   await expect(panel.getByText('Customer profile')).toBeVisible();
   await expect(panel.getByText('Access secret')).toBeVisible();
   await expect(panel.getByText('MASKED')).toBeVisible();
+  await panel.getByText('页面操作与日志').click();
   await expect(panel.getByText('server-write')).toBeVisible();
   await expect(panel.locator('body')).not.toContainText('ultra-secret-demo');
   await expect(panel.locator('body')).not.toContainText(

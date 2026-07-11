@@ -176,6 +176,7 @@ export default defineBackground(() => {
         },
         emit,
         controller.signal,
+        parsed.data.history,
       )
         .catch((error: unknown) => {
           emit({

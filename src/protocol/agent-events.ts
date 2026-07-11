@@ -4,6 +4,17 @@ export const AgentRunRequestSchema = z
   .object({
     type: z.literal('lens.agent.run'),
     goal: z.string().min(1).max(2_000),
+    history: z
+      .array(
+        z
+          .object({
+            role: z.enum(['user', 'assistant']),
+            content: z.string().min(1).max(4_000),
+          })
+          .strict(),
+      )
+      .max(12)
+      .default([]),
   })
   .strict();
 
@@ -63,6 +74,7 @@ export const AgentEventSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type AgentRunRequest = z.infer<typeof AgentRunRequestSchema>;
+export type AgentHistoryItem = AgentRunRequest['history'][number];
 export type AgentPortRequest = z.infer<typeof AgentPortRequestSchema>;
 export type AgentEvent = z.infer<typeof AgentEventSchema>;
 

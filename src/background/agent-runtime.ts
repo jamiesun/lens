@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AgentEvent } from '../protocol/agent-events';
+import type { AgentHistoryItem } from '../protocol/agent-events';
 import { FillFieldValueSchema } from '../protocol/page-commands';
 import type { PageSnapshot } from '../protocol/page-snapshot';
 import type {
@@ -126,6 +127,7 @@ export async function runAgentGoal(
   dependencies: AgentDependencies,
   emit: (event: AgentEvent) => void,
   signal?: AbortSignal,
+  history: AgentHistoryItem[] = [],
 ): Promise<void> {
   let provider: ProviderConfig;
   let apiKey: string;
@@ -185,6 +187,12 @@ export async function runAgentGoal(
 
   const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt() },
+    ...history.map(
+      (message): ChatMessage => ({
+        role: message.role,
+        content: message.content,
+      }),
+    ),
     {
       role: 'user',
       content: `Current page snapshot:\n${compactSnapshot(snapshot)}\n\nGoal: ${goal}`,

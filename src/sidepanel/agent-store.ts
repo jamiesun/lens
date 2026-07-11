@@ -15,6 +15,12 @@ import {
 
 export type AgentPhase = 'idle' | 'running' | 'done' | 'error';
 
+export interface ChatEntry {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+}
+
 interface AgentState {
   initialized: boolean;
   vault?: VaultState;
@@ -24,6 +30,7 @@ interface AgentState {
   phase: AgentPhase;
   runStatus?: string;
   events: AgentEvent[];
+  messages: ChatEntry[];
   localWriteCount: number;
   assistantReply?: string;
   runError?: string;
@@ -34,12 +41,13 @@ interface AgentState {
     provider: ProviderConfig,
     apiKey: string,
     password: string,
-  ) => Promise<boolean>;
+  ) => Promise<{ saved: boolean; warning?: string }>;
   unlock: (password: string) => Promise<boolean>;
   lock: () => Promise<void>;
   clear: () => Promise<void>;
   runGoal: (goal: string) => void;
   cancelRun: () => void;
+  clearConversation: () => void;
 }
 
 function describeError(error: unknown): string {
@@ -53,6 +61,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   vaultBusy: false,
   phase: 'idle',
   events: [],
+  messages: [],
   localWriteCount: 0,
   runGeneration: 0,
 
@@ -82,10 +91,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         vaultBusy: false,
         vaultWarning: result.permissionWarning,
       });
-      return true;
+      return { saved: true, warning: result.permissionWarning };
     } catch (error) {
       set({ vaultBusy: false, vaultError: describeError(error) });
-      return false;
+      return { saved: false };
     }
   },
 
@@ -136,6 +145,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         vaultWarning: result.permissionWarning,
         phase: 'idle',
         events: [],
+        messages: [],
         assistantReply: undefined,
         activeRun: undefined,
       });
@@ -150,10 +160,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
 
     const runGeneration = get().runGeneration + 1;
+    const previousMessages = get().messages;
     set({
       phase: 'running',
       runGeneration,
       events: [],
+      messages: [
+        ...previousMessages,
+        {
+          id: `user_${runGeneration}_${Date.now()}`,
+          role: 'user',
+          text: goal,
+        },
+      ],
       runStatus: 'Starting Agent',
       assistantReply: undefined,
       runError: undefined,
@@ -161,6 +180,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const activeRun = startAgentRun(
       goal,
+      previousMessages
+        .slice(-12)
+        .map((message) => ({
+          role: message.role,
+          content: message.text.slice(0, 4_000),
+        })),
       (event) => {
         if (get().runGeneration !== runGeneration) {
           return;
@@ -181,6 +206,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               state.localWriteCount + (event.affected ?? 0);
           } else if (event.kind === 'assistant') {
             update.assistantReply = event.text;
+            update.messages = [
+              ...state.messages,
+              {
+                id: `assistant_${runGeneration}_${Date.now()}`,
+                role: 'assistant',
+                text: event.text,
+              },
+            ];
           } else if (event.kind === 'done') {
             update.phase = 'done';
             update.runStatus = 'Complete';
@@ -217,6 +250,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     get().activeRun?.cancel();
     set({
       runStatus: 'Cancelling',
+    });
+  },
+
+  clearConversation() {
+    if (get().phase === 'running') {
+      return;
+    }
+    set({
+      phase: 'idle',
+      runStatus: undefined,
+      events: [],
+      messages: [],
+      assistantReply: undefined,
+      runError: undefined,
     });
   },
 }));

@@ -6,6 +6,7 @@ import { customerFixtureUrl, mockProviderUrl } from './constants';
 const masterPassword = 'correct horse';
 
 async function configureMockProvider(panel: Page): Promise<void> {
+  await panel.getByTestId('settings-toggle').click();
   await expect(panel.getByTestId('vault-status')).toHaveText('unconfigured');
   await panel
     .getByTestId('provider-base-url')
@@ -14,7 +15,12 @@ async function configureMockProvider(panel: Page): Promise<void> {
   await panel.getByTestId('provider-api-key').fill('lens-test-key');
   await panel.getByTestId('vault-password').fill(masterPassword);
   await panel.getByTestId('save-provider').click();
-  await expect(panel.getByTestId('vault-status')).toHaveText('unlocked');
+  await expect(panel.getByTestId('provider-settings')).toHaveCount(0);
+  await expect(panel.getByTestId('settings-toggle')).toHaveAttribute(
+    'data-vault-status',
+    'unlocked',
+  );
+  await expect(panel.getByTestId('settings-toggle')).toBeFocused();
 }
 
 test('runs goal -> snapshot -> model tool call -> page fill -> final reply', async ({
@@ -53,7 +59,7 @@ test('runs goal -> snapshot -> model tool call -> page fill -> final reply', asy
   await expect(panel.getByTestId('agent-events')).toContainText(
     'page.form.fill · completed · 2/2 fields filled',
   );
-  await expect(panel.getByTestId('write-gate')).toContainText('2 LOCAL');
+  await expect(panel.getByTestId('context-chip')).toContainText('已修改 2 项');
   await expect(panel.getByTestId('scan-status')).toHaveAttribute(
     'data-phase',
     'ready',
@@ -71,9 +77,10 @@ test('locks the vault and rejects a wrong password before recovering', async ({
   );
   await configureMockProvider(panel);
 
+  await panel.getByTestId('settings-toggle').click();
   await panel.getByTestId('lock-vault').click();
   await expect(panel.getByTestId('vault-status')).toHaveText('locked');
-  await expect(panel.getByTestId('agent-goal')).toHaveCount(0);
+  await expect(panel.getByTestId('agent-goal')).toBeDisabled();
 
   await panel.getByTestId('vault-password').fill('wrong password');
   await panel.getByTestId('unlock-vault').click();
@@ -84,8 +91,8 @@ test('locks the vault and rejects a wrong password before recovering', async ({
 
   await panel.getByTestId('vault-password').fill(masterPassword);
   await panel.getByTestId('unlock-vault').click();
-  await expect(panel.getByTestId('vault-status')).toHaveText('unlocked');
-  await expect(panel.getByTestId('agent-goal')).toBeVisible();
+  await expect(panel.getByTestId('provider-settings')).toHaveCount(0);
+  await expect(panel.getByTestId('agent-goal')).toBeEnabled();
 });
 
 test('locking is a cancellation barrier for an in-flight model request', async ({
@@ -104,13 +111,15 @@ test('locking is a cancellation barrier for an in-flight model request', async (
   await panel
     .getByTestId('run-agent')
     .evaluate((element: HTMLButtonElement) => element.click());
-  await expect(panel.getByTestId('agent-events')).toContainText(
+  await expect(panel.getByTestId('stop-agent')).toBeVisible();
+  await expect(panel.getByTestId('agent-status')).toContainText(
     'Consulting model',
   );
 
+  await panel.getByTestId('settings-toggle').click();
   await panel.getByTestId('lock-vault').click();
   await expect(panel.getByTestId('vault-status')).toHaveText('locked');
-  await panel.waitForTimeout(1_100);
+  await panel.waitForTimeout(3_300);
 
   await expect(panel.getByTestId('assistant-reply')).toHaveCount(0);
   await expect(target.locator('input[name="name"]')).toHaveValue(
@@ -119,4 +128,38 @@ test('locking is a cancellation barrier for an in-flight model request', async (
   await expect(target.locator('input[name="phone"]')).toHaveValue(
     '13800000000',
   );
+});
+
+test('keeps a multi-turn chat history and clears it on new chat', async ({
+  context,
+  extensionId,
+}) => {
+  const { panel, target } = await openObserver(
+    context,
+    extensionId,
+    customerFixtureUrl,
+  );
+  await configureMockProvider(panel);
+
+  for (const [index, goal] of [
+    '记住暗号：海蓝',
+    '刚才的暗号是什么？',
+  ].entries()) {
+    await panel.getByTestId('agent-goal').fill(goal);
+    await target.bringToFront();
+    await panel
+      .getByTestId('run-agent')
+      .evaluate((element: HTMLButtonElement) => element.click());
+    await expect(
+      panel.locator('[data-chat-role="assistant"]'),
+    ).toHaveCount(index + 1);
+  }
+
+  await expect(panel.locator('[data-chat-role="user"]')).toHaveCount(2);
+  await expect(
+    panel.locator('[data-chat-role="assistant"]').last(),
+  ).toContainText('海蓝');
+  await panel.getByTestId('new-chat').click();
+  await expect(panel.locator('[data-chat-role]')).toHaveCount(0);
+  await expect(panel.getByTestId('chat-welcome')).toBeVisible();
 });
