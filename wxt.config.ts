@@ -14,11 +14,7 @@ export default defineConfig({
     description: 'Local-first frontend agent runtime for your own systems',
     minimum_chrome_version: '116',
     permissions: ['activeTab', 'scripting', 'storage'],
-    optional_host_permissions: [
-      'https://*/*',
-      'http://127.0.0.1/*',
-      'http://localhost/*',
-    ],
+    optional_host_permissions: ['https://*/*', 'http://*/*'],
     action: {
       default_title: 'Open Lens',
       default_icon: {

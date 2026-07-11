@@ -1,5 +1,7 @@
 import {
   RuntimeRequestSchema,
+  type ClickRequest,
+  type ClickResponse,
   type FillRequest,
   type FillResponse,
   type RuntimeErrorCode,
@@ -8,6 +10,7 @@ import {
   type SnapshotResponse,
 } from '../protocol/messages';
 import {
+  ClickCommandResultSchema,
   FillCommandResultSchema,
   type PageCommand,
 } from '../protocol/page-commands';
@@ -49,6 +52,15 @@ function readResponseType(message: unknown): ResponseType {
     message.type === 'lens.page.fill.request'
   ) {
     return 'lens.page.fill.response';
+  }
+
+  if (
+    typeof message === 'object' &&
+    message !== null &&
+    'type' in message &&
+    message.type === 'lens.page.click.request'
+  ) {
+    return 'lens.page.click.response';
   }
 
   return 'lens.page.snapshot.response';
@@ -282,6 +294,76 @@ async function handleFillRequest(
   };
 }
 
+async function handleClickRequest(
+  request: ClickRequest,
+  dependencies: PageServiceDependencies,
+): Promise<ClickResponse> {
+  const type = 'lens.page.click.response';
+  const prepared = await prepareTab(
+    type,
+    request.requestId,
+    'CLICK_FAILED',
+    dependencies,
+  );
+  if (!prepared.ok) {
+    return prepared.response as ClickResponse;
+  }
+
+  let rawResult: unknown;
+  try {
+    rawResult = await prepared.context.dependencies.sendPageCommand(
+      prepared.context.tabId,
+      {
+        source: 'lens-background',
+        command: 'page.click',
+        payload: {
+          snapshotId: request.snapshotId,
+          generation: request.generation,
+          nodeId: request.nodeId,
+        },
+      },
+    );
+  } catch (error) {
+    return failure(
+      type,
+      request.requestId,
+      'CLICK_FAILED',
+      'Lens could not perform the page click.',
+      describeError(error),
+    ) as ClickResponse;
+  }
+
+  const parsedResult = ClickCommandResultSchema.safeParse(rawResult);
+  if (!parsedResult.success) {
+    return failure(
+      type,
+      request.requestId,
+      'CLICK_FAILED',
+      'The page returned an invalid click result.',
+      parsedResult.error.issues
+        .slice(0, 3)
+        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        .join('; '),
+    ) as ClickResponse;
+  }
+
+  if (!parsedResult.data.ok) {
+    return failure(
+      type,
+      request.requestId,
+      'STALE_SNAPSHOT',
+      parsedResult.data.message,
+    ) as ClickResponse;
+  }
+
+  return {
+    type,
+    requestId: request.requestId,
+    ok: true,
+    result: parsedResult.data.result,
+  };
+}
+
 export async function handleRuntimeRequest(
   message: unknown,
   dependencies: PageServiceDependencies,
@@ -298,6 +380,10 @@ export async function handleRuntimeRequest(
 
   if (parsedRequest.data.type === 'lens.page.fill.request') {
     return handleFillRequest(parsedRequest.data, dependencies);
+  }
+
+  if (parsedRequest.data.type === 'lens.page.click.request') {
+    return handleClickRequest(parsedRequest.data, dependencies);
   }
 
   return handleSnapshotRequest(parsedRequest.data, dependencies);

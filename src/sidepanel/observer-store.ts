@@ -98,6 +98,12 @@ function formatError(error: unknown): ObserverError {
         title: 'Fill interrupted',
         message: error.message,
       };
+    case 'CLICK_FAILED':
+      return {
+        code: error.code,
+        title: 'Click interrupted',
+        message: error.message,
+      };
     case 'SNAPSHOT_FAILED':
       return {
         code: error.code,

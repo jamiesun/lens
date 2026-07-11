@@ -47,6 +47,14 @@ const fillRequest = {
   fields: [{ nodeId: 'node_1_001', value: 'Grace' }],
 };
 
+const clickRequest = {
+  type: 'lens.page.click.request',
+  requestId: 'request-3',
+  snapshotId: 'snapshot_1',
+  generation: 1,
+  nodeId: 'node_1_002',
+};
+
 describe('handleRuntimeRequest', () => {
   it('returns a validated snapshot for a valid request', async () => {
     const dependencies = createDependencies();
@@ -206,6 +214,104 @@ describe('handleRuntimeRequest', () => {
       type: 'lens.page.fill.response',
       ok: false,
       error: { code: 'FILL_FAILED' },
+    });
+  });
+
+  it('returns the click outcome for a successful click', async () => {
+    const clickResult = {
+      ok: true,
+      result: {
+        snapshotId: 'snapshot_1',
+        generation: 1,
+        outcome: { nodeId: 'node_1_002', status: 'clicked' },
+      },
+    };
+    const dependencies = createDependencies({
+      sendPageCommand: vi.fn().mockResolvedValue(clickResult),
+    });
+
+    const response = await handleRuntimeRequest(clickRequest, dependencies);
+
+    expect(response).toEqual({
+      type: 'lens.page.click.response',
+      requestId: 'request-3',
+      ok: true,
+      result: clickResult.result,
+    });
+    expect(dependencies.sendPageCommand).toHaveBeenCalledWith(42, {
+      source: 'lens-background',
+      command: 'page.click',
+      payload: {
+        snapshotId: 'snapshot_1',
+        generation: 1,
+        nodeId: 'node_1_002',
+      },
+    });
+  });
+
+  it('maps stale click results to STALE_SNAPSHOT failures', async () => {
+    const response = await handleRuntimeRequest(
+      clickRequest,
+      createDependencies({
+        sendPageCommand: vi.fn().mockResolvedValue({
+          ok: false,
+          code: 'STALE_SNAPSHOT',
+          message: 'The page changed since this snapshot was taken.',
+        }),
+      }),
+    );
+
+    expect(response).toMatchObject({
+      type: 'lens.page.click.response',
+      ok: false,
+      error: { code: 'STALE_SNAPSHOT' },
+    });
+  });
+
+  it('blocks clicks on pages without host access', async () => {
+    const dependencies = createDependencies({
+      ensurePageAgent: vi
+        .fn()
+        .mockRejectedValue(
+          new Error('Cannot access contents of url. Missing host permission.'),
+        ),
+    });
+    const response = await handleRuntimeRequest(clickRequest, dependencies);
+
+    expect(response).toMatchObject({
+      type: 'lens.page.click.response',
+      ok: false,
+      error: { code: 'PAGE_ACCESS_DENIED' },
+    });
+    expect(dependencies.sendPageCommand).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed click requests and results', async () => {
+    const dependencies = createDependencies();
+    const malformedRequest = await handleRuntimeRequest(
+      { type: 'lens.page.click.request', requestId: 'r' },
+      dependencies,
+    );
+    expect(malformedRequest).toMatchObject({
+      type: 'lens.page.click.response',
+      ok: false,
+      error: { code: 'INVALID_REQUEST' },
+    });
+    expect(dependencies.sendPageCommand).not.toHaveBeenCalled();
+
+    const malformedResult = await handleRuntimeRequest(
+      clickRequest,
+      createDependencies({
+        sendPageCommand: vi.fn().mockResolvedValue({
+          ok: true,
+          result: { outcome: 'garbage' },
+        }),
+      }),
+    );
+    expect(malformedResult).toMatchObject({
+      type: 'lens.page.click.response',
+      ok: false,
+      error: { code: 'CLICK_FAILED' },
     });
   });
 });

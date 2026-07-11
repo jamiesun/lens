@@ -18,30 +18,33 @@ function createApi(overrides: Partial<SiteAccessApi> = {}): SiteAccessApi {
 }
 
 describe('originTargetFor', () => {
-  it('builds a requestable https pattern without the port', () => {
+  it('builds an https pattern without the port', () => {
     expect(originTargetFor('https://console.example.com:8443/orders')).toEqual({
       host: 'console.example.com:8443',
       pattern: 'https://console.example.com/*',
-      requestable: true,
     });
   });
 
-  it('keeps loopback http requestable for local development systems', () => {
+  it('builds patterns for loopback development hosts', () => {
     expect(originTargetFor('http://127.0.0.1:4174/customer-create.html')).toEqual(
       {
         host: '127.0.0.1:4174',
         pattern: 'http://127.0.0.1/*',
-        requestable: true,
       },
     );
-    expect(originTargetFor('http://localhost:5173/')?.requestable).toBe(true);
+    expect(originTargetFor('http://localhost:5173/')?.pattern).toBe(
+      'http://localhost/*',
+    );
   });
 
-  it('marks plain http on non-loopback hosts as not requestable', () => {
+  it('keeps plain http intranet systems grantable per site', () => {
     expect(originTargetFor('http://intranet.example.com/app')).toEqual({
       host: 'intranet.example.com',
       pattern: 'http://intranet.example.com/*',
-      requestable: false,
+    });
+    expect(originTargetFor('http://4.190.169.163/dashboard')).toEqual({
+      host: '4.190.169.163',
+      pattern: 'http://4.190.169.163/*',
     });
   });
 
@@ -102,13 +105,14 @@ describe('describeSiteAccess', () => {
     });
   });
 
-  it('reports unrequestable for plain http intranet hosts', async () => {
+  it('reports temporary access for plain http intranet hosts', async () => {
     const api = createApi({
       queryActiveTabUrl: async () => 'http://erp.internal/orders',
     });
     await expect(describeSiteAccess(api)).resolves.toEqual({
-      kind: 'unrequestable',
+      kind: 'temporary',
       host: 'erp.internal',
+      pattern: 'http://erp.internal/*',
     });
   });
 

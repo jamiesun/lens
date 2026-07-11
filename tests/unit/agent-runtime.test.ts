@@ -37,7 +37,20 @@ const snapshot: PageSnapshot = {
     },
   ],
   tables: [],
-  actions: [],
+  actions: [
+    {
+      nodeId: 'node_solve',
+      role: 'button',
+      label: '看看电脑怎么解',
+      disabled: false,
+    },
+    {
+      nodeId: 'node_peg',
+      role: 'clickable',
+      label: 'div.peg[data-peg="0"]',
+      disabled: false,
+    },
+  ],
   alerts: [],
 };
 
@@ -68,6 +81,16 @@ function dependencies(
         snapshotId: 'snapshot_1',
         generation: 1,
         outcomes: [{ nodeId: 'node_name', status: 'filled' }],
+      },
+    }),
+    runClick: vi.fn().mockResolvedValue({
+      type: 'lens.page.click.response',
+      requestId: 'click-request',
+      ok: true,
+      result: {
+        snapshotId: 'snapshot_1',
+        generation: 1,
+        outcome: { nodeId: 'node_peg', status: 'clicked' },
       },
     }),
     runScreenshot: vi.fn().mockResolvedValue({
@@ -187,11 +210,128 @@ describe('runAgentGoal', () => {
     expect(events.at(-1)).toEqual({ kind: 'done' });
   });
 
+  it('routes page_click with runtime-bound snapshot identity', async () => {
+    const deps = dependencies({
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: null,
+          toolCalls: [
+            {
+              id: 'call_click',
+              name: 'page_click',
+              arguments: JSON.stringify({ nodeId: 'node_peg' }),
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: '已点击左侧柱子。',
+          toolCalls: [],
+        }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('点击左边的柱子', deps, (event) => events.push(event));
+
+    expect(deps.runClick).toHaveBeenCalledWith({
+      snapshotId: 'snapshot_1',
+      generation: 1,
+      nodeId: 'node_peg',
+    });
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.click',
+      status: 'completed',
+      detail: 'Clicked div.peg[data-peg="0"]',
+      affected: 1,
+    });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('rejects invalid page_click arguments without clicking', async () => {
+    const deps = dependencies({
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: null,
+          toolCalls: [
+            {
+              id: 'call_bad_click',
+              name: 'page_click',
+              arguments: '{"x": 120, "y": 240}',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: '坐标点击不受支持。',
+          toolCalls: [],
+        }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('点击坐标', deps, (event) => events.push(event));
+
+    expect(deps.runClick).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.click',
+      status: 'failed',
+      detail: 'Invalid tool arguments from model',
+    });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('surfaces a rejected click outcome as a failed tool event', async () => {
+    const deps = dependencies({
+      runClick: vi.fn().mockResolvedValue({
+        type: 'lens.page.click.response',
+        requestId: 'click-request',
+        ok: true,
+        result: {
+          snapshotId: 'snapshot_1',
+          generation: 1,
+          outcome: {
+            nodeId: 'node_solve',
+            status: 'rejected',
+            reason: 'submit-blocked',
+          },
+        },
+      }),
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: null,
+          toolCalls: [
+            {
+              id: 'call_blocked_click',
+              name: 'page_click',
+              arguments: JSON.stringify({ nodeId: 'node_solve' }),
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          content: '提交按钮被运行时策略拒绝。',
+          toolCalls: [],
+        }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('提交表单', deps, (event) => events.push(event));
+
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.click',
+      status: 'failed',
+      detail: 'Rejected (submit-blocked): 看看电脑怎么解',
+    });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
   it('rejects an oversized tool batch before any side effect', async () => {
     const deps = dependencies({
       complete: vi.fn().mockResolvedValue({
         content: null,
-        toolCalls: Array.from({ length: 5 }, (_, index) => ({
+        toolCalls: Array.from({ length: 7 }, (_, index) => ({
           id: `call_${index}`,
           name: 'page_form_fill',
           arguments: JSON.stringify({

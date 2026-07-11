@@ -41,6 +41,40 @@ export const FillResultSchema = z
   })
   .strict();
 
+export const ClickRejectReasonSchema = z.enum([
+  'not-found',
+  'detached',
+  'hidden',
+  'disabled',
+  'submit-blocked',
+  'risk-blocked',
+  'unsupported-type',
+]);
+
+export const ClickOutcomeSchema = z.discriminatedUnion('status', [
+  z
+    .object({
+      nodeId: z.string().min(1).max(128),
+      status: z.literal('clicked'),
+    })
+    .strict(),
+  z
+    .object({
+      nodeId: z.string().min(1).max(128),
+      status: z.literal('rejected'),
+      reason: ClickRejectReasonSchema,
+    })
+    .strict(),
+]);
+
+export const ClickResultSchema = z
+  .object({
+    snapshotId: z.string().min(1),
+    generation: z.number().int().positive(),
+    outcome: ClickOutcomeSchema,
+  })
+  .strict();
+
 const snapshotCommand = z
   .object({
     source: z.literal('lens-background'),
@@ -64,6 +98,20 @@ const fillCommand = z
         snapshotId: z.string().min(1).max(128),
         generation: z.number().int().positive(),
         fields: z.array(FillFieldValueSchema).min(1).max(40),
+      })
+      .strict(),
+  })
+  .strict();
+
+const clickCommand = z
+  .object({
+    source: z.literal('lens-background'),
+    command: z.literal('page.click'),
+    payload: z
+      .object({
+        snapshotId: z.string().min(1).max(128),
+        generation: z.number().int().positive(),
+        nodeId: z.string().min(1).max(128),
       })
       .strict(),
   })
@@ -111,6 +159,7 @@ export const PageCommandSchema = z.discriminatedUnion('command', [
   snapshotCommand,
   documentIdentityCommand,
   fillCommand,
+  clickCommand,
   screenshotPrepareCommand,
   screenshotScrollCommand,
   screenshotRestoreCommand,
@@ -162,9 +211,29 @@ export const ScreenshotRestoreResultSchema = z
   })
   .strict();
 
+export const ClickCommandResultSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      ok: z.literal(true),
+      result: ClickResultSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      code: z.literal('STALE_SNAPSHOT'),
+      message: z.string().min(1),
+    })
+    .strict(),
+]);
+
 export type FillFieldValue = z.infer<typeof FillFieldValueSchema>;
 export type FillRejectReason = z.infer<typeof FillRejectReasonSchema>;
 export type FieldFillOutcome = z.infer<typeof FieldFillOutcomeSchema>;
 export type FillResult = z.infer<typeof FillResultSchema>;
+export type ClickRejectReason = z.infer<typeof ClickRejectReasonSchema>;
+export type ClickOutcome = z.infer<typeof ClickOutcomeSchema>;
+export type ClickResult = z.infer<typeof ClickResultSchema>;
 export type PageCommand = z.infer<typeof PageCommandSchema>;
 export type FillCommandResult = z.infer<typeof FillCommandResultSchema>;
+export type ClickCommandResult = z.infer<typeof ClickCommandResultSchema>;

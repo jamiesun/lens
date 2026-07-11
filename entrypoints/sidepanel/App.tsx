@@ -12,6 +12,7 @@ import { useAgentStore } from '../../src/sidepanel/agent-store';
 import { useObserverStore } from '../../src/sidepanel/observer-store';
 import { useSiteAccessStore } from '../../src/sidepanel/site-access-store';
 import { useModalFocus } from '../../src/sidepanel/use-modal-focus';
+import { shouldHandleActionInvocation } from '../../src/protocol/messages';
 import { ProviderSettings } from './ProviderSettings';
 
 const EDITABLE_FIELD_TYPES = new Set([
@@ -180,9 +181,7 @@ function SiteAccessSection() {
       ? '已长期授权，切换标签页后仍可访问'
       : access.kind === 'temporary'
         ? '临时访问，仅本次有效'
-        : access.kind === 'unrequestable'
-          ? '非本机 HTTP 站点只能临时访问'
-          : '未授权，点击浏览器工具栏中的 Lens 图标以授权当前页面';
+        : '未授权，点击浏览器工具栏中的 Lens 图标以授权当前页面';
 
   return (
     <section
@@ -581,6 +580,36 @@ export default function App() {
   }, [observerPhase, refreshSiteAccess]);
 
   useEffect(() => {
+    let panelWindowId: number | undefined;
+    void browser.windows
+      .getCurrent()
+      .then((window) => {
+        panelWindowId = window.id;
+      })
+      .catch(() => {
+        panelWindowId = undefined;
+      });
+
+    // A toolbar click is the moment Chrome arms activeTab for the page, so
+    // rescan immediately instead of leaving the stale denied state on screen.
+    const handleMessage = (message: unknown) => {
+      if (!shouldHandleActionInvocation(message, panelWindowId)) {
+        return;
+      }
+      const observer = useObserverStore.getState();
+      if (observer.phase !== 'ready') {
+        void observer.scanPage();
+      }
+      void refreshSiteAccess();
+    };
+
+    browser.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      browser.runtime.onMessage.removeListener(handleMessage);
+    };
+  }, [refreshSiteAccess]);
+
+  useEffect(() => {
     const handleAdded = () => {
       void refreshSiteAccess();
       const observer = useObserverStore.getState();
@@ -935,7 +964,7 @@ export default function App() {
           className="write-gate-copy"
           data-testid="write-gate"
         >
-          本地填写可自动执行 · 提交和高风险操作仍需确认
+          本地填写与点击可自动执行 · 提交和高风险操作已被运行时阻止
         </span>
         </footer>
       </div>
