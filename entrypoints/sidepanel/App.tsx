@@ -1,26 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { browser } from 'wxt/browser';
 import type {
-  ActionDescriptor,
   FormDescriptor,
   FormFieldDescriptor,
-  PageSnapshot,
 } from '../../src/protocol/page-snapshot';
 import type {
   FieldFillOutcome,
   FillFieldValue,
 } from '../../src/protocol/page-commands';
-import {
-  type ObserverPhase,
-  type TraceEntry,
-  useObserverStore,
-} from '../../src/sidepanel/observer-store';
-
-const phaseLabels: Record<ObserverPhase, string> = {
-  idle: 'STANDBY',
-  scanning: 'SCANNING',
-  ready: 'LOCKED',
-  error: 'INTERRUPTED',
-};
+import { useAgentStore } from '../../src/sidepanel/agent-store';
+import { useObserverStore } from '../../src/sidepanel/observer-store';
+import { useModalFocus } from '../../src/sidepanel/use-modal-focus';
+import { ProviderSettings } from './ProviderSettings';
 
 const EDITABLE_FIELD_TYPES = new Set([
   'text',
@@ -36,96 +27,64 @@ function isEditableField(field: FormFieldDescriptor): boolean {
   return !field.sensitive && EDITABLE_FIELD_TYPES.has(field.fieldType);
 }
 
-function ScanIcon() {
+function SettingsIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" />
-      <circle cx="12" cy="12" r="3.25" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
     </svg>
   );
 }
 
-function ArrowIcon() {
+function ContextIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M5 12h13M14 7l5 5-5 5" />
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M8 9h8M8 13h5" />
     </svg>
   );
 }
 
-function ShieldIcon() {
+function NewChatIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3 5.5 5.8v5.7c0 4.4 2.7 7.6 6.5 9.5 3.8-1.9 6.5-5.1 6.5-9.5V5.8L12 3Z" />
-      <path d="m9 12 2 2 4-4" />
+      <path d="M12 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
+      <path d="m14 4 6 6M17 3l4 4-8 8-4 1 1-4 7-7Z" />
     </svg>
   );
 }
 
-function EmptyTarget() {
+function HistoryIcon() {
   return (
-    <section className="empty-target" aria-labelledby="empty-title">
-      <div className="target-mark" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-        <i />
-      </div>
-      <p className="section-index">00 / TARGET</p>
-      <h2 id="empty-title">Arm the page lens.</h2>
-      <p>
-        从浏览器工具栏打开 Lens 后扫描当前页面。扫描只读取可见语义，
-        填写字段会实时显示逐项结果。
-      </p>
-    </section>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5M12 7v5l3 2" />
+    </svg>
   );
 }
 
-function Metric({
-  value,
-  label,
-  testId,
-}: {
-  value: number;
-  label: string;
-  testId?: string;
-}) {
+function SendIcon() {
   return (
-    <div className="metric">
-      <strong data-testid={testId}>{value.toString().padStart(2, '0')}</strong>
-      <span>{label}</span>
-    </div>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m4 12 16-8-5 16-3-6-8-2Z" />
+      <path d="m12 14 8-10" />
+    </svg>
   );
 }
 
-function SnapshotHeader({ snapshot }: { snapshot: PageSnapshot }) {
-  const targetUrl = new URL(snapshot.url);
-
+function StopIcon() {
   return (
-    <section className="target-card" aria-labelledby="page-title">
-      <div className="target-card__eyebrow">
-        <span>CURRENT PAGE</span>
-        <span>
-          GEN {snapshot.generation.toString().padStart(2, '0')} ·{' '}
-          {snapshot.pageType ?? 'UNDECLARED'}
-        </span>
-      </div>
-      <h1 id="page-title" data-testid="page-title">
-        {snapshot.title || targetUrl.hostname}
-      </h1>
-      <div className="route-line">
-        <span>{targetUrl.hostname}</span>
-        <span>{snapshot.route ?? targetUrl.pathname}</span>
-      </div>
-      {snapshot.visibleTextSummary ? (
-        <p className="page-summary">{snapshot.visibleTextSummary}</p>
-      ) : (
-        <p className="page-summary page-summary--muted">
-          No safe summary fragments were exposed by this page.
-        </p>
-      )}
-    </section>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="7" y="7" width="10" height="10" rx="1" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m6 6 12 12M18 6 6 18" />
+    </svg>
   );
 }
 
@@ -133,17 +92,12 @@ function FillBadge({ outcome }: { outcome?: FieldFillOutcome }) {
   if (!outcome) {
     return null;
   }
-
   return (
     <span
-      className={
-        outcome.status === 'filled'
-          ? 'fill-badge fill-badge--filled'
-          : 'fill-badge fill-badge--rejected'
-      }
+      className={`fill-receipt fill-receipt--${outcome.status}`}
       data-testid="fill-badge"
     >
-      {outcome.status === 'filled' ? 'FILLED' : outcome.reason.toUpperCase()}
+      {outcome.status === 'filled' ? '已填写' : outcome.reason}
     </span>
   );
 }
@@ -160,323 +114,747 @@ function FormEditor({
   onFill: (formNodeId: string, fields: FillFieldValue[]) => void;
 }) {
   const [draft, setDraft] = useState<Record<string, string>>({});
-
-  const dirtyFields: FillFieldValue[] = Object.entries(draft)
+  const fields = Object.entries(draft)
     .filter(([, value]) => value.length > 0)
     .map(([nodeId, value]) => ({ nodeId, value }));
 
   return (
-    <article className="form-row" key={form.nodeId}>
-      <div className="form-row__title">
+    <article className="context-form">
+      <div className="context-form__title">
         <strong>{form.label ?? form.formId}</strong>
         <span>{form.validationState}</span>
       </div>
-
-      <div className="fill-editor">
-        {form.fields.map((field) => {
-          if (isEditableField(field)) {
-            return (
-              <label className="fill-row" key={field.nodeId}>
-                <span className="fill-row__label">
-                  {field.label ?? field.name ?? field.fieldType}
-                </span>
-                <input
-                  className="fill-row__input"
-                  type="text"
-                  value={draft[field.nodeId] ?? ''}
-                  placeholder={field.hasValue ? '(keeps current value)' : '—'}
-                  data-field-name={field.name ?? field.nodeId}
-                  disabled={busy}
-                  onChange={(event) =>
-                    setDraft((previous) => ({
-                      ...previous,
-                      [field.nodeId]: event.target.value,
-                    }))
-                  }
-                />
-                <FillBadge outcome={outcomes[field.nodeId]} />
-              </label>
-            );
-          }
-
-          return (
-            <div className="fill-row fill-row--locked" key={field.nodeId}>
-              <span className="fill-row__label">
-                {field.label ?? field.name ?? field.fieldType}
-              </span>
-              <span
-                className={
-                  field.sensitive
-                    ? 'field-tag is-sensitive'
-                    : 'field-tag'
-                }
-              >
-                {field.sensitive ? 'MASKED' : field.fieldType.toUpperCase()}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="fill-actions">
-        <span className="fill-actions__note">
-          local-write · auto-applied · no submit
-        </span>
-        <button
-          className="apply-button"
-          type="button"
-          disabled={busy || dirtyFields.length === 0}
-          data-testid={`apply-fill-${form.formId}`}
-          onClick={() => onFill(form.nodeId, dirtyFields)}
-        >
-          <ArrowIcon />
-          {busy ? 'APPLYING' : 'APPLY FILL'}
-        </button>
-      </div>
+      {form.fields.map((field) =>
+        isEditableField(field) ? (
+          <label className="context-field" key={field.nodeId}>
+            <span>{field.label ?? field.name ?? field.fieldType}</span>
+            <input
+              value={draft[field.nodeId] ?? ''}
+              placeholder={field.hasValue ? '保留现值' : '输入内容'}
+              data-field-name={field.name ?? field.nodeId}
+              disabled={busy}
+              onChange={(event) =>
+                setDraft((previous) => ({
+                  ...previous,
+                  [field.nodeId]: event.target.value,
+                }))
+              }
+            />
+            <FillBadge outcome={outcomes[field.nodeId]} />
+          </label>
+        ) : (
+          <div className="context-field context-field--locked" key={field.nodeId}>
+            <span>{field.label ?? field.name ?? field.fieldType}</span>
+            <em>{field.sensitive ? 'MASKED' : field.fieldType}</em>
+          </div>
+        ),
+      )}
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={busy || fields.length === 0}
+        data-testid={`apply-fill-${form.formId}`}
+        onClick={() => onFill(form.nodeId, fields)}
+      >
+        {busy ? '正在填写…' : '应用填写'}
+      </button>
     </article>
   );
 }
 
-function FormInventory({
-  forms,
-  outcomes,
-  fillingFormId,
-  onFill,
+function PageContextDrawer({
+  open,
+  onClose,
 }: {
-  forms: FormDescriptor[];
-  outcomes: Record<string, FieldFillOutcome>;
-  fillingFormId?: string;
-  onFill: (formNodeId: string, fields: FillFieldValue[]) => void;
+  open: boolean;
+  onClose: () => void;
 }) {
-  return (
-    <section className="instrument-card" aria-labelledby="forms-title">
-      <div className="instrument-card__header">
-        <div>
-          <p className="section-index">02 / FORMS</p>
-          <h2 id="forms-title">Field inventory</h2>
-        </div>
-        <span className="count-chip">{forms.length}</span>
-      </div>
-
-      {forms.length === 0 ? (
-        <p className="quiet-state">No visible form controls detected.</p>
-      ) : (
-        <div className="inventory-list">
-          {forms.slice(0, 4).map((form) => (
-            <FormEditor
-              key={form.nodeId}
-              form={form}
-              outcomes={outcomes}
-              busy={fillingFormId === form.nodeId}
-              onFill={onFill}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ActionInventory({ actions }: { actions: ActionDescriptor[] }) {
-  return (
-    <section className="instrument-card" aria-labelledby="actions-title">
-      <div className="instrument-card__header">
-        <div>
-          <p className="section-index">03 / ACTIONS</p>
-          <h2 id="actions-title">Declared controls</h2>
-        </div>
-        <span className="count-chip">{actions.length}</span>
-      </div>
-
-      {actions.length === 0 ? (
-        <p className="quiet-state">No visible actions detected.</p>
-      ) : (
-        <div className="action-list">
-          {actions.slice(0, 6).map((action) => (
-            <div className="action-row" key={action.nodeId}>
-              <span className="action-row__mark" aria-hidden="true">
-                <ArrowIcon />
-              </span>
-              <span className="action-row__label">{action.label}</span>
-              <span
-                className={`risk-label risk-label--${
-                  action.declaredRisk ?? 'unrated'
-                }`}
-              >
-                {action.declaredRisk ?? 'unrated'}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="trust-note">
-        Page-declared risk is descriptive only. Runtime policy remains authoritative.
-      </p>
-    </section>
-  );
-}
-
-function TracePanel({ trace }: { trace: TraceEntry[] }) {
-  return (
-    <section className="trace-card" aria-labelledby="trace-title">
-      <div className="instrument-card__header">
-        <div>
-          <p className="section-index">04 / TRACE</p>
-          <h2 id="trace-title">Local execution</h2>
-        </div>
-        <span className="live-dot">LOCAL</span>
-      </div>
-
-      {trace.length === 0 ? (
-        <p className="quiet-state">No tool calls in this session.</p>
-      ) : (
-        <ol className="trace-list">
-          {trace.map((entry) => (
-            <li key={entry.id}>
-              <span className={`trace-state trace-state--${entry.status}`} />
-              <div>
-                <strong>{entry.tool}</strong>
-                <span>{entry.detail}</span>
-              </div>
-              <time>
-                {entry.status === 'running'
-                  ? '…'
-                  : `${entry.durationMs ?? 0} ms`}
-              </time>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}
-
-export default function App() {
   const phase = useObserverStore((state) => state.phase);
   const snapshot = useObserverStore((state) => state.snapshot);
   const error = useObserverStore((state) => state.error);
   const trace = useObserverStore((state) => state.trace);
   const fillingFormId = useObserverStore((state) => state.fillingFormId);
-  const fillOutcomes = useObserverStore((state) => state.fillOutcomes);
-  const localWriteCount = useObserverStore((state) => state.localWriteCount);
+  const outcomes = useObserverStore((state) => state.fillOutcomes);
   const scanPage = useObserverStore((state) => state.scanPage);
   const fillForm = useObserverStore((state) => state.fillForm);
+  const screenshotBusy = useAgentStore((state) => state.screenshotBusy);
+  const screenshotError = useAgentStore((state) => state.screenshotError);
+  const captureScreenshot = useAgentStore((state) => state.captureScreenshot);
+  const dialogRef = useModalFocus<HTMLElement>(open, onClose);
+
+  if (!open) {
+    return null;
+  }
 
   const fieldCount =
     snapshot?.forms.reduce((total, form) => total + form.fields.length, 0) ?? 0;
 
   return (
-    <div className={`app-shell app-shell--${phase}`}>
-      <header className="topbar">
-        <div className="brand-lockup">
-          <span className="brand-mark">L</span>
-          <span>
-            <strong>LENS</strong>
-            <small>PAGE OBSERVER / M1</small>
-          </span>
-        </div>
-        <div
-          className="runtime-status"
-          data-phase={phase}
-          data-testid="scan-status"
-          aria-live="polite"
-        >
-          <span />
-          {phaseLabels[phase]}
-        </div>
-      </header>
-
-      <main>
-        <section className="command-rail">
+    <div
+      className="drawer-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <aside
+        ref={dialogRef}
+        tabIndex={-1}
+        className="context-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="context-title"
+        data-testid="page-context"
+      >
+        <header className="drawer-header">
           <div>
-            <p className="section-index">01 / OBSERVE</p>
-            <p className="command-copy">
-              Read the active page, then fill visible fields with per-field
-              receipts.
-            </p>
+            <h2 id="context-title">当前页面</h2>
+            <p>页面分析与手动工具</p>
           </div>
-          <button
-            className="scan-button"
-            type="button"
-            onClick={() => void scanPage()}
-            disabled={phase === 'scanning' || Boolean(fillingFormId)}
-            data-testid="scan-page"
-          >
-            <ScanIcon />
-            <span>{snapshot ? 'RESCAN' : 'SCAN PAGE'}</span>
+          <button type="button" aria-label="关闭页面信息" onClick={onClose}>
+            <CloseIcon />
           </button>
-        </section>
+        </header>
 
-        {error ? (
-          <aside
-            className="error-panel"
+        <button
+          type="button"
+          className="scan-page-button"
+          data-testid="scan-page"
+          disabled={phase === 'scanning' || Boolean(fillingFormId)}
+          onClick={() => void scanPage()}
+        >
+          {phase === 'scanning' ? '正在读取页面…' : snapshot ? '重新读取页面' : '读取页面'}
+        </button>
+
+        {error && (
+          <div
+            className="context-error"
             data-testid="error-banner"
             data-error-code={error.code}
             role="alert"
           >
-            <span className="error-panel__code">{error.code}</span>
-            <div>
-              <strong>{error.title}</strong>
-              <p>{error.message}</p>
-            </div>
-          </aside>
-        ) : null}
-
-        {snapshot ? (
-          <div className="snapshot-stack">
-            <SnapshotHeader snapshot={snapshot} />
-
-            <section className="metrics-grid" aria-label="Page inventory">
-              <Metric
-                value={snapshot.forms.length}
-                label="FORMS"
-                testId="form-count"
-              />
-              <Metric value={fieldCount} label="FIELDS" />
-              <Metric value={snapshot.actions.length} label="ACTIONS" />
-              <Metric value={snapshot.tables.length} label="TABLES" />
-              <Metric value={snapshot.alerts.length} label="ALERTS" />
-            </section>
-
-            <div className="instrument-grid">
-              <FormInventory
-                forms={snapshot.forms}
-                outcomes={fillOutcomes}
-                fillingFormId={fillingFormId}
-                onFill={(formNodeId, fields) => void fillForm(formNodeId, fields)}
-              />
-              <ActionInventory actions={snapshot.actions} />
-            </div>
+            <strong>{error.title}</strong>
+            <p>{error.message}</p>
           </div>
-        ) : (
-          <EmptyTarget />
         )}
 
-        <section
-          className="write-gate"
-          aria-label="Write gate status"
+        <div className="capture-actions">
+          <button
+            type="button"
+            disabled={screenshotBusy || phase !== 'ready'}
+            data-testid="capture-viewport"
+            onClick={() => void captureScreenshot('viewport')}
+          >
+            {screenshotBusy ? '正在截图…' : '截取当前画面'}
+          </button>
+          <button
+            type="button"
+            disabled={screenshotBusy || phase !== 'ready'}
+            data-testid="capture-full-page"
+            onClick={() => void captureScreenshot('full-page')}
+          >
+            {screenshotBusy ? '正在拼接…' : '截取整页长图'}
+          </button>
+        </div>
+        {screenshotError && (
+          <p className="capture-error" role="alert">
+            {screenshotError}
+          </p>
+        )}
+
+        {snapshot && phase === 'ready' && (
+          <>
+            <section className="page-summary-card">
+              <h3 data-testid="page-title">{snapshot.title}</h3>
+              <p>{snapshot.visibleTextSummary ?? '此页面没有可安全提取的摘要。'}</p>
+              <div className="page-metrics">
+                <span>
+                  <b data-testid="form-count">{snapshot.forms.length}</b> 个表单
+                </span>
+                <span>{fieldCount} 个字段</span>
+                <span>{snapshot.actions.length} 个操作</span>
+              </div>
+            </section>
+
+            <details className="drawer-details">
+              <summary data-testid="manual-tools-toggle">手动填写表单</summary>
+              <div className="drawer-details__content">
+                {snapshot.forms.length === 0 ? (
+                  <p className="empty-copy">没有发现可填写表单。</p>
+                ) : (
+                  snapshot.forms.map((form) => (
+                    <FormEditor
+                      key={form.nodeId}
+                      form={form}
+                      outcomes={outcomes}
+                      busy={fillingFormId === form.nodeId}
+                      onFill={(formNodeId, fields) =>
+                        void fillForm(formNodeId, fields)
+                      }
+                    />
+                  ))
+                )}
+              </div>
+            </details>
+
+            <details className="drawer-details">
+              <summary>页面操作与日志</summary>
+              <div className="drawer-details__content">
+                {snapshot.actions.map((action) => (
+                  <div className="context-action" key={action.nodeId}>
+                    <span>{action.label}</span>
+                    <em>{action.declaredRisk ?? 'unrated'}</em>
+                  </div>
+                ))}
+                {trace.map((entry) => (
+                  <div className="context-action" key={entry.id}>
+                    <span>{entry.tool}</span>
+                    <em>{entry.status} · {entry.detail}</em>
+                  </div>
+                ))}
+              </div>
+            </details>
+          </>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function HistoryDrawer({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const conversations = useAgentStore((state) => state.conversations);
+  const currentId = useAgentStore((state) => state.currentConversationId);
+  const busy = useAgentStore((state) => state.historyBusy);
+  const error = useAgentStore((state) => state.historyError);
+  const loadConversation = useAgentStore((state) => state.loadConversation);
+  const deleteConversation = useAgentStore((state) => state.deleteConversation);
+  const dialogRef = useModalFocus<HTMLElement>(open, onClose);
+
+  if (!open) {
+    return null;
+  }
+
+  return (
+    <div
+      className="drawer-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) {
+          onClose();
+        }
+      }}
+    >
+      <aside
+        ref={dialogRef}
+        tabIndex={-1}
+        className="context-drawer history-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="history-title"
+        data-testid="history-drawer"
+      >
+        <header className="drawer-header">
+          <div>
+            <h2 id="history-title">历史记录</h2>
+            <p>仅保存在本机，最多保留 30 个会话</p>
+          </div>
+          <button
+            type="button"
+            aria-label="关闭历史记录"
+            disabled={busy}
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
+        </header>
+
+        {error && <p className="history-error">{error}</p>}
+        {conversations.length === 0 ? (
+          <div className="history-empty">
+            <HistoryIcon />
+            <p>还没有历史会话</p>
+          </div>
+        ) : (
+          <ol className="history-list">
+            {conversations.map((conversation) => (
+              <li
+                key={conversation.id}
+                className={
+                  conversation.id === currentId ? 'is-current' : undefined
+                }
+              >
+                <button
+                  type="button"
+                  className="history-open"
+                  disabled={busy}
+                  data-testid="history-entry"
+                  onClick={() => {
+                    void loadConversation(conversation.id).then(onClose);
+                  }}
+                >
+                  <strong>{conversation.title}</strong>
+                  <span>
+                    {new Date(conversation.updatedAt).toLocaleString()} ·{' '}
+                    {conversation.messageCount} 条消息
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="history-delete"
+                  aria-label={`删除 ${conversation.title}`}
+                  disabled={busy}
+                  onClick={() => void deleteConversation(conversation.id)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ol>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function ToolActivity() {
+  const phase = useAgentStore((state) => state.phase);
+  const status = useAgentStore((state) => state.runStatus);
+  const events = useAgentStore((state) => state.events);
+  const tools = events.filter((event) => event.kind === 'tool');
+
+  if (phase !== 'running' && tools.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="assistant-row">
+      <span className="assistant-mark">
+        <img src="/lens-logo.svg" alt="" />
+      </span>
+      <div className="activity-block">
+        {phase === 'running' && (
+          <div className="thinking-line" data-testid="agent-status">
+            <span className="thinking-dot" />
+            {status ?? '正在处理'}
+          </div>
+        )}
+        {tools.length > 0 && (
+          <details open={phase === 'running'} data-testid="agent-events">
+            <summary>
+              {phase === 'running' ? '正在操作页面' : `已执行 ${tools.length} 个页面操作`}
+            </summary>
+            {tools.map((event, index) =>
+              event.kind === 'tool' ? (
+                <p key={`${event.tool}-${index}`}>
+                  {event.tool} · {event.status} · {event.detail}
+                </p>
+              ) : null,
+            )}
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const chatEnd = useRef<HTMLDivElement>(null);
+
+  const vault = useAgentStore((state) => state.vault);
+  const initialized = useAgentStore((state) => state.initialized);
+  const initializeAgent = useAgentStore((state) => state.initialize);
+  const agentPhase = useAgentStore((state) => state.phase);
+  const messages = useAgentStore((state) => state.messages);
+  const runError = useAgentStore((state) => state.runError);
+  const runGoal = useAgentStore((state) => state.runGoal);
+  const cancelRun = useAgentStore((state) => state.cancelRun);
+  const clearConversation = useAgentStore((state) => state.clearConversation);
+  const agentLocalWriteCount = useAgentStore((state) => state.localWriteCount);
+
+  const observerPhase = useObserverStore((state) => state.phase);
+  const snapshot = useObserverStore((state) => state.snapshot);
+  const observerError = useObserverStore((state) => state.error);
+  const scanPage = useObserverStore((state) => state.scanPage);
+  const invalidatePage = useObserverStore((state) => state.invalidatePage);
+  const manualWriteCount = useObserverStore((state) => state.localWriteCount);
+
+  useEffect(() => {
+    void initializeAgent();
+  }, [initializeAgent]);
+
+  useEffect(() => {
+    if (initialized) {
+      void scanPage();
+    }
+  }, [initialized, scanPage]);
+
+  useEffect(() => {
+    if (agentPhase === 'done') {
+      void scanPage();
+    }
+  }, [agentPhase, scanPage]);
+
+  useEffect(() => {
+    const handleActivated = () => invalidatePage();
+    const handleUpdated = (
+      _tabId: number,
+      changeInfo: { status?: string },
+      tab: { active?: boolean; url?: string },
+    ) => {
+      if (
+        tab.active &&
+        changeInfo.status === 'loading' &&
+        !tab.url?.startsWith(browser.runtime.getURL(''))
+      ) {
+        invalidatePage();
+      }
+    };
+
+    browser.tabs.onActivated.addListener(handleActivated);
+    browser.tabs.onUpdated.addListener(handleUpdated);
+    return () => {
+      browser.tabs.onActivated.removeListener(handleActivated);
+      browser.tabs.onUpdated.removeListener(handleUpdated);
+    };
+  }, [invalidatePage]);
+
+  useEffect(() => {
+    chatEnd.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, agentPhase]);
+
+  if (!initialized) {
+    return (
+      <div className="chat-app chat-app--loading" data-testid="app-loading">
+        <img src="/lens-logo.svg" alt="" className="loading-logo" />
+        <span>正在加载本地会话…</span>
+      </div>
+    );
+  }
+
+  const submitGoal = (goal: string) => {
+    const normalized = goal.trim();
+    if (!normalized || vault?.status !== 'unlocked' || agentPhase === 'running') {
+      return;
+    }
+    setDraft('');
+    runGoal(normalized);
+  };
+
+  const pageLabel =
+    (observerPhase === 'ready' ? snapshot?.title : undefined) ??
+    (observerPhase === 'scanning'
+      ? '正在读取当前页面'
+      : observerError
+        ? '无法读取当前页面'
+        : '当前页面');
+
+  return (
+    <div className="chat-app">
+      <div
+        className="chat-frame"
+        aria-hidden={
+          settingsOpen || contextOpen || historyOpen ? true : undefined
+        }
+      >
+        <header className="chat-header">
+        <div className="chat-title">
+          <img src="/lens-logo.svg" alt="" className="lens-logo" />
+          <h1>Lens</h1>
+          <span
+            className={`page-status page-status--${observerPhase}`}
+            data-testid="scan-status"
+            data-phase={observerPhase}
+          />
+        </div>
+        <nav className="header-actions" aria-label="对话操作">
+          <button
+            type="button"
+            aria-label="新建对话"
+            title="新建对话"
+            data-testid="new-chat"
+            onClick={clearConversation}
+          >
+            <NewChatIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="历史记录"
+            title="历史记录"
+            data-testid="history-toggle"
+            onClick={() => {
+              setSettingsOpen(false);
+              setContextOpen(false);
+              setHistoryOpen(true);
+            }}
+          >
+            <HistoryIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="页面信息"
+            title="页面信息"
+            data-testid="context-toggle"
+            onClick={() => {
+              setSettingsOpen(false);
+              setHistoryOpen(false);
+              setContextOpen(true);
+            }}
+          >
+            <ContextIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="模型设置"
+            title="模型设置"
+            data-testid="settings-toggle"
+            data-vault-status={vault?.status ?? 'loading'}
+            onClick={() => {
+              setContextOpen(false);
+              setHistoryOpen(false);
+              setSettingsOpen(true);
+            }}
+          >
+            <SettingsIcon />
+          </button>
+        </nav>
+        </header>
+
+        <main className="chat-thread">
+        {messages.length === 0 && (
+          <div className="welcome-block" data-testid="chat-welcome">
+            <span className="welcome-spark">
+              <img src="/lens-logo.svg" alt="" />
+            </span>
+            <h2>想让我在这个页面做什么？</h2>
+            <p>
+              我可以读取页面、理解表单并填写内容。提交、删除、付款等操作仍然保持锁定。
+            </p>
+
+            {vault?.status !== 'unlocked' ? (
+              <button
+                type="button"
+                className="setup-prompt"
+                onClick={() => {
+                  setContextOpen(false);
+                  setHistoryOpen(false);
+                  setSettingsOpen(true);
+                }}
+              >
+                {vault?.status === 'locked' ? '解锁模型' : '配置模型'}
+              </button>
+            ) : (
+              <div className="suggestion-list">
+                {[
+                  '告诉我这个页面能做什么',
+                  '帮我填写当前表单',
+                  '检查页面上有没有错误提示',
+                ].map((suggestion) => (
+                  <button
+                    type="button"
+                    key={suggestion}
+                    onClick={() => submitGoal(suggestion)}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {messages.map((message, index) =>
+          message.role === 'user' ? (
+            <div className="user-row" key={message.id} data-chat-role="user">
+              <div className="user-bubble">{message.text}</div>
+            </div>
+          ) : (
+            <div
+              className="assistant-row"
+              key={message.id}
+              data-chat-role="assistant"
+            >
+              <span className="assistant-mark">
+                <img src="/lens-logo.svg" alt="" />
+              </span>
+              <div
+                className="assistant-message"
+                data-testid={index === messages.length - 1 ? 'assistant-reply' : undefined}
+              >
+                {message.text}
+                {message.screenshot && (
+                  <figure
+                    className="screenshot-card"
+                    data-screenshot-mode={message.screenshot.mode}
+                  >
+                    <img
+                      src={message.screenshot.dataUrl}
+                      alt={
+                        message.screenshot.mode === 'full-page'
+                          ? '整页长截图预览'
+                          : '当前页面截图预览'
+                      }
+                      data-testid="screenshot-preview"
+                    />
+                    <figcaption>
+                      <span>
+                        {message.screenshot.width} × {message.screenshot.height}
+                        {message.screenshot.truncated ? ' · 已达到长度上限' : ''}
+                      </span>
+                      <a
+                        href={message.screenshot.dataUrl}
+                        download={message.screenshot.filename}
+                        data-testid="screenshot-download"
+                      >
+                        下载
+                      </a>
+                    </figcaption>
+                  </figure>
+                )}
+              </div>
+            </div>
+          ),
+        )}
+
+        <ToolActivity />
+
+        {runError && (
+          <div className="assistant-row">
+            <span className="assistant-mark assistant-mark--error">!</span>
+            <div className="assistant-message assistant-message--error" role="alert">
+              {runError}
+            </div>
+          </div>
+        )}
+
+        {observerError && (
+          <button
+            type="button"
+            className="page-error-banner"
+            data-testid="error-banner"
+            data-error-code={observerError.code}
+            onClick={() => setContextOpen(true)}
+          >
+            <strong>{observerError.title}</strong>
+            <span>{observerError.message}</span>
+          </button>
+        )}
+        <div ref={chatEnd} />
+        </main>
+
+        <footer className="composer-shell">
+        <button
+          type="button"
+          className="context-chip"
+          data-testid="context-chip"
+          onClick={() => {
+            setSettingsOpen(false);
+            setHistoryOpen(false);
+            setContextOpen(true);
+          }}
+        >
+          <ContextIcon />
+          <span>{pageLabel}</span>
+          <em>
+            {manualWriteCount + agentLocalWriteCount > 0
+              ? `已修改 ${manualWriteCount + agentLocalWriteCount} 项`
+              : '未提交任何操作'}
+          </em>
+        </button>
+
+        <div className="composer-box">
+          <textarea
+            value={draft}
+            rows={2}
+            data-testid="agent-goal"
+            placeholder={
+              vault?.status === 'unlocked'
+                ? '输入你想在当前页面完成的事情'
+                : '请先配置或解锁模型'
+            }
+            disabled={vault?.status !== 'unlocked' || agentPhase === 'running'}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Enter' &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                submitGoal(draft);
+              }
+            }}
+          />
+          <div className="composer-actions">
+            <button
+              type="button"
+              className="composer-icon"
+              aria-label="模型设置"
+              onClick={() => {
+                setContextOpen(false);
+                setHistoryOpen(false);
+                setSettingsOpen(true);
+              }}
+            >
+              <SettingsIcon />
+            </button>
+            <span className="model-name">
+              {vault?.provider?.model ?? '未配置模型'}
+            </span>
+            {agentPhase === 'running' ? (
+              <button
+                type="button"
+                className="send-button send-button--stop"
+                aria-label="停止"
+                data-testid="stop-agent"
+                onClick={cancelRun}
+              >
+                <StopIcon />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="send-button"
+                aria-label="发送"
+                data-testid="run-agent"
+                disabled={!draft.trim() || vault?.status !== 'unlocked'}
+                onClick={() => submitGoal(draft)}
+              >
+                <SendIcon />
+              </button>
+            )}
+          </div>
+        </div>
+        <span
+          className="write-gate-copy"
           data-testid="write-gate"
         >
-          <span className="write-gate__icon">
-            <ShieldIcon />
-          </span>
-          <div>
-            <strong>
-              WRITE GATE · {localWriteCount} LOCAL · 0 PENDING
-            </strong>
-            <p>Fills apply locally with receipts. Submits stay locked.</p>
-          </div>
-          <span className="write-gate__status">SAFE</span>
-        </section>
+          本地填写可自动执行 · 提交和高风险操作仍需确认
+        </span>
+        </footer>
+      </div>
 
-        <TracePanel trace={trace} />
-      </main>
-
-      <footer>
-        <span>LOCAL RUNTIME</span>
-        <span>NO SERVER</span>
-        <span>v0.1.0</span>
-      </footer>
+      <ProviderSettings
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
+      <PageContextDrawer
+        open={contextOpen}
+        onClose={() => setContextOpen(false)}
+      />
+      <HistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
     </div>
   );
 }

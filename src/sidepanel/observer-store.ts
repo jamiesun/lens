@@ -36,8 +36,10 @@ interface ObserverState {
   fillingFormId?: string;
   fillOutcomes: Record<string, FieldFillOutcome>;
   localWriteCount: number;
+  pageRevision: number;
   scanPage: () => Promise<void>;
   fillForm: (formNodeId: string, fields: FillFieldValue[]) => Promise<void>;
+  invalidatePage: () => void;
 }
 
 function createTraceId(): string {
@@ -120,6 +122,7 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
   trace: [],
   fillOutcomes: {},
   localWriteCount: 0,
+  pageRevision: 0,
 
   async scanPage() {
     if (get().phase === 'scanning' || get().fillingFormId) {
@@ -127,6 +130,7 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
     }
 
     const traceId = createTraceId();
+    const pageRevision = get().pageRevision;
     const startedAt = performance.now();
     const traceEntry: TraceEntry = {
       id: traceId,
@@ -138,6 +142,7 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
 
     set((state) => ({
       phase: 'scanning',
+      snapshot: undefined,
       error: undefined,
       fillOutcomes: {},
       trace: [traceEntry, ...state.trace].slice(0, 8),
@@ -146,6 +151,9 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
     try {
       const snapshot = await requestPageSnapshot();
       const durationMs = Math.round(performance.now() - startedAt);
+      if (get().pageRevision !== pageRevision) {
+        return;
+      }
 
       set((state) => ({
         phase: 'ready',
@@ -160,9 +168,13 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
     } catch (error) {
       const durationMs = Math.round(performance.now() - startedAt);
       const observerError = formatError(error);
+      if (get().pageRevision !== pageRevision) {
+        return;
+      }
 
       set((state) => ({
         phase: 'error',
+        snapshot: undefined,
         error: observerError,
         trace: replaceTrace(state.trace, traceId, {
           status: 'failed',
@@ -175,11 +187,12 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
 
   async fillForm(formNodeId, fields) {
     const { snapshot, phase, fillingFormId } = get();
-    if (!snapshot || phase === 'scanning' || fillingFormId) {
+    if (!snapshot || phase !== 'ready' || fillingFormId) {
       return;
     }
 
     const traceId = createTraceId();
+    const pageRevision = get().pageRevision;
     const startedAt = performance.now();
     const traceEntry: TraceEntry = {
       id: traceId,
@@ -206,6 +219,18 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
         (outcome) => outcome.status === 'filled',
       ).length;
 
+      if (get().pageRevision !== pageRevision) {
+        set((state) => ({
+          localWriteCount: state.localWriteCount + filledCount,
+          trace: replaceTrace(state.trace, traceId, {
+            status: 'completed',
+            durationMs,
+            detail: `${filledCount}/${result.outcomes.length} fields filled on previous page`,
+          }),
+        }));
+        return;
+      }
+
       set((state) => ({
         fillingFormId: undefined,
         fillOutcomes: {
@@ -224,9 +249,23 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
     } catch (error) {
       const durationMs = Math.round(performance.now() - startedAt);
       const observerError = formatError(error);
+      if (get().pageRevision !== pageRevision) {
+        set((state) => ({
+          trace: replaceTrace(state.trace, traceId, {
+            status: 'failed',
+            durationMs,
+            detail: `${observerError.title} on previous page`,
+          }),
+        }));
+        return;
+      }
 
       set((state) => ({
         fillingFormId: undefined,
+        snapshot:
+          observerError.code === 'STALE_SNAPSHOT'
+            ? undefined
+            : state.snapshot,
         error: observerError,
         trace: replaceTrace(state.trace, traceId, {
           status: 'failed',
@@ -235,5 +274,16 @@ export const useObserverStore = create<ObserverState>((set, get) => ({
         }),
       }));
     }
+  },
+
+  invalidatePage() {
+    set((state) => ({
+      pageRevision: state.pageRevision + 1,
+      phase: 'idle',
+      snapshot: undefined,
+      error: undefined,
+      fillingFormId: undefined,
+      fillOutcomes: {},
+    }));
   },
 }));

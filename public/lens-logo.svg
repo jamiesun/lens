@@ -1,0 +1,33 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 128 128"
+  role="img"
+  aria-labelledby="lens-logo-title"
+>
+  <title id="lens-logo-title">Lens</title>
+  <rect width="128" height="128" rx="28" fill="#171919" />
+  <circle
+    cx="64"
+    cy="64"
+    r="30"
+    fill="#0f1111"
+    stroke="#8ab4f8"
+    stroke-width="8"
+  />
+  <path
+    d="M64 34a30 30 0 0 1 25.98 15"
+    fill="none"
+    stroke="#81c995"
+    stroke-linecap="round"
+    stroke-width="8"
+  />
+  <path
+    d="M24 50V24h26M78 24h26v26M104 78v26H78M50 104H24V78"
+    fill="none"
+    stroke="#f2f4f4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="7"
+  />
+  <circle cx="64" cy="64" r="7" fill="#81c995" />
+</svg>

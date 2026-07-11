@@ -12,8 +12,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'node tests/fixtures/server.mjs',
-    url: 'http://127.0.0.1:4173/health',
+    command: 'node tests/fixtures/e2e-server.mjs',
+    url: 'http://127.0.0.1:4174/health',
     reuseExistingServer: false,
     timeout: 10_000,
   },

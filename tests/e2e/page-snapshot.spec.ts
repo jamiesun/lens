@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import { openObserver } from './helpers';
+import { customerFixtureUrl } from './constants';
 
 test('shows a redacted semantic snapshot for an authorized page', async ({
   context,
@@ -8,7 +9,8 @@ test('shows a redacted semantic snapshot for an authorized page', async ({
   const { panel } = await openObserver(
     context,
     extensionId,
-    'http://127.0.0.1:4173/customer-create.html',
+    customerFixtureUrl,
+    { keepContextOpen: true },
   );
 
   await expect(panel.getByTestId('scan-status')).toHaveAttribute(
@@ -18,10 +20,12 @@ test('shows a redacted semantic snapshot for an authorized page', async ({
   await expect(panel.getByTestId('page-title')).toHaveText(
     'Customer Console / Create',
   );
-  await expect(panel.getByTestId('form-count')).toHaveText('01');
+  await expect(panel.getByTestId('form-count')).toHaveText('1');
+  await panel.getByTestId('manual-tools-toggle').click();
   await expect(panel.getByText('Customer profile')).toBeVisible();
   await expect(panel.getByText('Access secret')).toBeVisible();
   await expect(panel.getByText('MASKED')).toBeVisible();
+  await panel.getByText('页面操作与日志').click();
   await expect(panel.getByText('server-write')).toBeVisible();
   await expect(panel.locator('body')).not.toContainText('ultra-secret-demo');
   await expect(panel.locator('body')).not.toContainText(
@@ -32,14 +36,14 @@ test('shows a redacted semantic snapshot for an authorized page', async ({
   );
 });
 
-test('blocks snapshot injection when the page origin is not authorized', async ({
+test('blocks snapshot injection on protected browser surfaces', async ({
   context,
   extensionId,
 }) => {
   const { panel } = await openObserver(
     context,
     extensionId,
-    'http://localhost:4173/customer-create.html',
+    'chrome://extensions/',
   );
 
   await expect(panel.getByTestId('scan-status')).toHaveAttribute(

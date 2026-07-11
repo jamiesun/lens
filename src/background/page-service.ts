@@ -15,6 +15,7 @@ import { PageSnapshotSchema } from '../protocol/page-snapshot';
 
 export interface ActiveTab {
   id?: number;
+  windowId?: number;
   url?: string;
 }
 

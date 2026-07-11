@@ -48,6 +48,13 @@ const snapshotCommand = z
   })
   .strict();
 
+const documentIdentityCommand = z
+  .object({
+    source: z.literal('lens-background'),
+    command: z.literal('page.document.identity'),
+  })
+  .strict();
+
 const fillCommand = z
   .object({
     source: z.literal('lens-background'),
@@ -62,10 +69,58 @@ const fillCommand = z
   })
   .strict();
 
+const screenshotPrepareCommand = z
+  .object({
+    source: z.literal('lens-background'),
+    command: z.literal('page.screenshot.prepare'),
+    payload: z
+      .object({
+        sessionId: z.string().min(1).max(128),
+      })
+      .strict(),
+  })
+  .strict();
+
+const screenshotScrollCommand = z
+  .object({
+    source: z.literal('lens-background'),
+    command: z.literal('page.screenshot.scroll'),
+    payload: z
+      .object({
+        sessionId: z.string().min(1).max(128),
+        y: z.number().int().nonnegative().max(100_000),
+        hideFixed: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const screenshotRestoreCommand = z
+  .object({
+    source: z.literal('lens-background'),
+    command: z.literal('page.screenshot.restore'),
+    payload: z
+      .object({
+        sessionId: z.string().min(1).max(128),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const PageCommandSchema = z.discriminatedUnion('command', [
   snapshotCommand,
+  documentIdentityCommand,
   fillCommand,
+  screenshotPrepareCommand,
+  screenshotScrollCommand,
+  screenshotRestoreCommand,
 ]);
+
+export const DocumentIdentityResultSchema = z
+  .object({
+    documentId: z.string().min(1).max(128),
+  })
+  .strict();
 
 export const FillCommandResultSchema = z.discriminatedUnion('ok', [
   z
@@ -82,6 +137,30 @@ export const FillCommandResultSchema = z.discriminatedUnion('ok', [
     })
     .strict(),
 ]);
+
+export const ScreenshotPrepareResultSchema = z
+  .object({
+    ok: z.literal(true),
+    sessionId: z.string().min(1).max(128),
+    documentWidth: z.number().int().positive().max(10_000_000),
+    documentHeight: z.number().int().positive().max(10_000_000),
+    viewportWidth: z.number().int().positive().max(20_000),
+    viewportHeight: z.number().int().positive().max(20_000),
+  })
+  .strict();
+
+export const ScreenshotScrollResultSchema = z
+  .object({
+    ok: z.literal(true),
+    scrollY: z.number().int().nonnegative().max(100_000),
+  })
+  .strict();
+
+export const ScreenshotRestoreResultSchema = z
+  .object({
+    ok: z.literal(true),
+  })
+  .strict();
 
 export type FillFieldValue = z.infer<typeof FillFieldValueSchema>;
 export type FillRejectReason = z.infer<typeof FillRejectReasonSchema>;
