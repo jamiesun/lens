@@ -892,7 +892,7 @@ svg {
 
 .settings-page {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
   background:
@@ -937,9 +937,50 @@ svg {
   text-transform: uppercase;
 }
 
+.settings-tabs {
+  z-index: 9;
+  display: flex;
+  gap: 2px;
+  padding: 0 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(17, 18, 18, 0.95);
+  scrollbar-width: none;
+}
+
+.settings-tab {
+  flex: 1 0 auto;
+  min-width: max-content;
+  padding: 11px 9px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.settings-tab:hover {
+  color: var(--text);
+}
+
+.settings-tab[aria-selected='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 520;
+}
+
+.settings-tab:disabled {
+  cursor: progress;
+  opacity: 0.55;
+}
+
 .settings-page__content {
   min-height: 0;
-  padding: 28px 18px 44px;
+  padding: 24px 18px 44px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: var(--line) transparent;
@@ -951,25 +992,21 @@ svg {
   animation: enter 180ms ease both;
 }
 
-.settings-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 15px;
+.settings-panel[hidden] {
+  display: none;
 }
 
-.settings-panel__header h2 {
-  margin: 0;
+.settings-panel h2 {
+  margin: 0 0 6px;
   font-size: 20px;
   font-weight: 520;
 }
 
-.settings-panel__header p {
-  margin: 5px 0 0;
+.panel-intro {
+  margin: 0 0 16px;
   color: var(--muted);
   font-size: 11px;
-  line-height: 1.45;
+  line-height: 1.55;
 }
 
 .vault-state {
@@ -1053,7 +1090,8 @@ svg {
 }
 
 .settings-error,
-.settings-warning {
+.settings-warning,
+.settings-success {
   margin: 11px 0 0;
   padding: 9px 11px;
   border-radius: 8px;
@@ -1069,6 +1107,16 @@ svg {
 .settings-warning {
   color: #e0c07c;
   background: rgba(224, 192, 124, 0.1);
+}
+
+.settings-success {
+  color: var(--success);
+  background: rgba(129, 201, 149, 0.1);
+}
+
+.runtime-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .settings-footer {
@@ -1114,6 +1162,118 @@ svg {
   color: var(--faint);
   font-size: 9px;
   line-height: 1.5;
+}
+
+.sites-empty {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.sites-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sites-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.sites-item__info {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.sites-item__host {
+  font-size: 12px;
+  font-weight: 520;
+  overflow-wrap: anywhere;
+}
+
+.sites-item__pattern {
+  color: var(--faint);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  overflow-wrap: anywhere;
+}
+
+.sites-item__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sites-item__tags:empty {
+  display: none;
+}
+
+.sites-tag {
+  padding: 2px 7px;
+  border-radius: 8px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 9px;
+}
+
+.sites-tag--broad {
+  color: #e0c07c;
+  background: rgba(224, 192, 124, 0.12);
+}
+
+.sites-item > .settings-action {
+  min-height: 34px;
+  padding: 0 10px;
+  flex: 0 0 auto;
+  font-size: 10px;
+}
+
+.about-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.about-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+}
+
+.about-identity h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 520;
+}
+
+.about-identity p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.about-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .drawer-backdrop {

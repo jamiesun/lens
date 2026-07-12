@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AGENT_SETTINGS_BOUNDS } from '../protocol/agent-settings';
 
 export interface ToolDefinition {
   type: 'function';
@@ -44,12 +45,15 @@ export class ModelError extends Error {
   }
 }
 
+const MAX_COMPLETION_FIELD_CHARS =
+  AGENT_SETTINGS_BOUNDS.maxOutputTokens.max * 4;
+
 const CompletionResponseSchema = z.object({
   choices: z
     .array(
       z.object({
         message: z.object({
-          content: z.string().max(20_000).nullish(),
+          content: z.string().max(MAX_COMPLETION_FIELD_CHARS).nullish(),
           tool_calls: z
             .array(
               z.object({
@@ -57,7 +61,7 @@ const CompletionResponseSchema = z.object({
                 type: z.literal('function'),
                 function: z.object({
                   name: z.string().min(1).max(100),
-                  arguments: z.string().max(20_000),
+                  arguments: z.string().max(MAX_COMPLETION_FIELD_CHARS),
                 }),
               }),
             )
@@ -126,6 +130,7 @@ export interface CompletionRequest {
   apiKey: string;
   messages: ChatMessage[];
   tools?: ToolDefinition[];
+  maxOutputTokens?: number;
   signal?: AbortSignal;
   fetchFn?: typeof fetch;
 }
@@ -155,6 +160,9 @@ export async function chatComplete(
         model: request.model,
         messages: request.messages,
         tools: request.tools,
+        ...(request.maxOutputTokens !== undefined && {
+          max_tokens: request.maxOutputTokens,
+        }),
         stream: false,
       }),
     });

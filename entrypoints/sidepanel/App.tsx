@@ -984,7 +984,11 @@ export default function App() {
         {runError && (
           <div className="assistant-row">
             <span className="assistant-mark assistant-mark--error">!</span>
-            <div className="assistant-message assistant-message--error" role="alert">
+            <div
+              className="assistant-message assistant-message--error"
+              role="alert"
+              data-testid="run-error"
+            >
               {runError}
             </div>
           </div>
