@@ -63,6 +63,45 @@ describe('chatComplete', () => {
       model: 'test-model',
       stream: false,
     });
+    expect(JSON.parse(init.body)).not.toHaveProperty('max_tokens');
+  });
+
+  it('sends max_tokens only when an output cap is configured', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'ok' } }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    await chatComplete({
+      ...baseRequest,
+      maxOutputTokens: 512,
+      fetchFn,
+    });
+
+    const [, init] = fetchFn.mock.calls[0]!;
+    expect(JSON.parse(init.body)).toMatchObject({ max_tokens: 512 });
+  });
+
+  it('accepts response content within the largest configurable output cap', async () => {
+    const content = 'x'.repeat(20_001);
+    const result = await chatComplete({
+      ...baseRequest,
+      maxOutputTokens: 32_768,
+      fetchFn: vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content } }],
+          }),
+          { status: 200 },
+        ),
+      ),
+    });
+
+    expect(result.content).toHaveLength(20_001);
   });
 
   it('surfaces HTTP failures without a success-shaped fallback', async () => {

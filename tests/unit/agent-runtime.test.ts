@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  enforceInputBudget,
   runAgentGoal,
   type AgentDependencies,
 } from '../../src/background/agent-runtime';
+import type { ChatMessage } from '../../src/background/model-client';
 import { VaultError } from '../../src/background/secret-vault';
 import type { AgentEvent } from '../../src/protocol/agent-events';
 import type { PageSnapshot } from '../../src/protocol/page-snapshot';
@@ -350,6 +352,273 @@ describe('runAgentGoal', () => {
       code: 'STEP_LIMIT',
       message: expect.stringContaining('Tool-call budget exceeded'),
     });
+  });
+
+  it('stops at the configured model-step budget', async () => {
+    const deps = dependencies({
+      complete: vi.fn().mockResolvedValue({
+        content: null,
+        toolCalls: [
+          {
+            id: 'call_1',
+            name: 'page_form_fill',
+            arguments: JSON.stringify({
+              fields: [{ nodeId: 'node_name', value: 'Grace' }],
+            }),
+          },
+        ],
+      }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal(
+      'Fill once',
+      deps,
+      (event) => events.push(event),
+      undefined,
+      [],
+      [],
+      { maxSteps: 1 },
+    );
+
+    expect(deps.complete).toHaveBeenCalledOnce();
+    expect(deps.runFill).toHaveBeenCalledOnce();
+    expect(events.at(-1)).toEqual({
+      kind: 'error',
+      code: 'STEP_LIMIT',
+      message: 'Stopped after 1 model steps without a final reply.',
+    });
+  });
+
+  it('derives the per-run tool budget from the step budget', async () => {
+    const deps = dependencies({
+      complete: vi.fn().mockResolvedValue({
+        content: null,
+        toolCalls: Array.from({ length: 3 }, (_, index) => ({
+          id: `call_${index}`,
+          name: 'page_form_fill',
+          arguments: JSON.stringify({
+            fields: [{ nodeId: 'node_name', value: `value-${index}` }],
+          }),
+        })),
+      }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal(
+      'Fill repeatedly',
+      deps,
+      (event) => events.push(event),
+      undefined,
+      [],
+      [],
+      { maxSteps: 1 },
+    );
+
+    expect(deps.runFill).not.toHaveBeenCalled();
+    expect(events.at(-1)).toMatchObject({
+      kind: 'error',
+      code: 'STEP_LIMIT',
+      message: expect.stringContaining('2 per run'),
+    });
+  });
+
+  it('forwards the configured output cap to the model client', async () => {
+    const deps = dependencies({
+      complete: vi.fn().mockResolvedValue({
+        content: 'Done.',
+        toolCalls: [],
+      }),
+    });
+
+    await runAgentGoal(
+      'Fill the name',
+      deps,
+      () => undefined,
+      undefined,
+      [],
+      [],
+      { maxSteps: 12, maxOutputTokens: 512 },
+    );
+
+    expect(deps.complete).toHaveBeenCalledWith(
+      expect.objectContaining({ maxOutputTokens: 512 }),
+    );
+  });
+
+  it('caps initial context and stale tool results to the input budget', async () => {
+    const largeSnapshot = {
+      ...snapshot,
+      title: 'x'.repeat(12_000),
+    };
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [
+          {
+            id: 'call_1',
+            name: 'page_form_fill',
+            arguments: JSON.stringify({
+              fields: [
+                { nodeId: 'node_name', value: 'v'.repeat(4_000) },
+              ],
+            }),
+          },
+          { id: 'call_2', name: 'page_snapshot', arguments: '{}' },
+        ],
+      })
+      .mockResolvedValueOnce({ content: 'Done.', toolCalls: [] });
+    const deps = dependencies({
+      complete,
+      runSnapshot: vi.fn().mockResolvedValue({
+        type: 'lens.page.snapshot.response',
+        requestId: 'snapshot-request',
+        ok: true,
+        snapshot: largeSnapshot,
+      }),
+    });
+
+    await runAgentGoal(
+      'Read the attachment',
+      deps,
+      () => undefined,
+      undefined,
+      [],
+      [
+        {
+          name: 'large.txt',
+          mimeType: 'text/plain',
+          size: 32_000,
+          content: 'a'.repeat(32_000),
+        },
+      ],
+      { maxSteps: 12, maxInputTokens: 2_048 },
+    );
+
+    const messages = complete.mock.calls[1]![0].messages;
+    const userMessage = messages.find(
+      (message: { role: string }) => message.role === 'user',
+    );
+    const toolMessage = messages.find(
+      (message: { role: string; content?: string | null }) =>
+        message.role === 'tool' && message.content?.includes('"truncated"'),
+    );
+    const assistantMessage = messages.find(
+      (message: { role: string }) => message.role === 'assistant',
+    );
+    expect(userMessage?.content).toContain('…[truncated: input budget]');
+    expect(toolMessage?.content).toContain('"truncated"');
+    expect(
+      assistantMessage?.role === 'assistant'
+        ? assistantMessage.tool_calls?.find(
+            (call: {
+              function: { name: string; arguments: string };
+            }) => call.function.name === 'page_form_fill',
+          )?.function.arguments
+        : undefined,
+    ).toBe('{}');
+    const approximateChars = messages.reduce(
+      (
+        total: number,
+        message: {
+          role: string;
+          content: string | null;
+          tool_calls?: {
+            function: { name: string; arguments: string };
+          }[];
+        },
+      ) =>
+        total +
+        (message.content?.length ?? 0) +
+        (message.tool_calls ?? []).reduce(
+          (callTotal, call) =>
+            callTotal +
+            call.function.name.length +
+            call.function.arguments.length,
+          0,
+        ),
+      0,
+    );
+    expect(approximateChars).toBeLessThanOrEqual(8_192);
+  });
+
+  it('drops oldest completed tool groups when compacted history still exceeds the budget', () => {
+    const messages: ChatMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'current goal' },
+    ];
+    for (let index = 0; index < 80; index += 1) {
+      messages.push(
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: `call_${index}`,
+              type: 'function',
+              function: {
+                name: 'page_form_fill',
+                arguments: JSON.stringify({
+                  fields: [
+                    { nodeId: 'node_name', value: 'x'.repeat(4_000) },
+                  ],
+                }),
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          tool_call_id: `call_${index}`,
+          content: 'result'.repeat(100),
+        },
+      );
+    }
+
+    enforceInputBudget(messages, 1_024);
+
+    expect(
+      messages.reduce(
+        (total, message) => total + JSON.stringify(message).length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(1_024);
+    expect(messages).toContainEqual({ role: 'user', content: 'current goal' });
+    expect(
+      messages.filter((message) => message.role === 'assistant').length,
+    ).toBeLessThan(80);
+    for (let index = 0; index < messages.length; index += 1) {
+      if (messages[index]?.role === 'tool') {
+        expect(messages[index - 1]?.role).toBe('assistant');
+      }
+    }
+  });
+
+  it('honors the input budget after JSON escaping expands the goal', async () => {
+    const complete = vi.fn().mockResolvedValue({
+      content: 'Done.',
+      toolCalls: [],
+    });
+    const deps = dependencies({ complete });
+
+    await runAgentGoal(
+      '\\'.repeat(2_000),
+      deps,
+      () => undefined,
+      undefined,
+      [],
+      [],
+      { maxSteps: 12, maxInputTokens: 1_024 },
+    );
+
+    const request = complete.mock.calls[0]![0];
+    expect(
+      JSON.stringify({
+        messages: request.messages,
+        tools: request.tools,
+      }).length,
+    ).toBeLessThanOrEqual(4_096);
   });
 
   it('stops remaining writes after cancellation while preserving the first receipt', async () => {

@@ -22,15 +22,19 @@ import type {
 } from './model-client';
 import { ModelError } from './model-client';
 import type { ProviderConfig } from '../protocol/provider';
+import {
+  DEFAULT_AGENT_SETTINGS,
+  type AgentSettings,
+} from '../protocol/agent-settings';
 import { SecretVault, VaultError } from './secret-vault';
 
 // Interactive pages need several click → rescan rounds per goal (a puzzle
-// move costs two clicks plus a rescan), so the budgets allow more, still
-// strictly bounded, local-write tool calls per run.
-const MAX_STEPS = 12;
+// move costs two clicks plus a rescan). User settings remain inside hard
+// schema bounds, and tool-call budgets derive from the configured step count.
 const MAX_TOOL_CALLS_PER_TURN = 6;
-const MAX_TOOL_CALLS_PER_RUN = 24;
+const TOOL_CALLS_PER_STEP = 2;
 const MAX_ASSISTANT_REPLY_LENGTH = 8_000;
+const CHARS_PER_TOKEN = 4;
 
 const FillArgumentsSchema = z
   .object({
@@ -66,6 +70,7 @@ export interface AgentDependencies {
     apiKey: string;
     messages: ChatMessage[];
     tools: ToolDefinition[];
+    maxOutputTokens?: number;
     signal?: AbortSignal;
   }) => Promise<AssistantTurn>;
 }
@@ -143,6 +148,8 @@ const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
 ];
+const MODEL_REQUEST_OVERHEAD_CHARS =
+  JSON.stringify({ tools: AGENT_TOOLS }).length + 256;
 
 function systemPrompt(): string {
   return [
@@ -175,28 +182,241 @@ function compactSnapshot(snapshot: PageSnapshot): string {
   });
 }
 
+const TRUNCATION_MARKER = '…[truncated: input budget]';
+const TRUNCATED_TOOL_RESULT = JSON.stringify({
+  truncated: 'Dropped to honor the input budget. Rescan if needed.',
+});
+const TRUNCATED_HISTORY_MESSAGE = '…[older conversation omitted]';
+
+function capText(text: string, maxChars: number | undefined): string {
+  if (maxChars === undefined || text.length <= maxChars) {
+    return text;
+  }
+  if (maxChars <= TRUNCATION_MARKER.length) {
+    return TRUNCATION_MARKER.slice(0, Math.max(0, maxChars));
+  }
+  return `${text.slice(0, maxChars - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+}
+
+function messageChars(message: ChatMessage): number {
+  return JSON.stringify(message).length;
+}
+
+function capUserMessage(
+  message: Extract<ChatMessage, { role: 'user' }>,
+  maxSerializedChars: number,
+): Extract<ChatMessage, { role: 'user' }> {
+  let low = 0;
+  let high = message.content.length;
+  while (low < high) {
+    const candidateLength = Math.ceil((low + high) / 2);
+    const candidate = {
+      ...message,
+      content: capText(message.content, candidateLength),
+    };
+    if (messageChars(candidate) <= maxSerializedChars) {
+      low = candidateLength;
+    } else {
+      high = candidateLength - 1;
+    }
+  }
+  return { ...message, content: capText(message.content, low) };
+}
+
+export function enforceInputBudget(
+  messages: ChatMessage[],
+  maxChars: number,
+): void {
+  const exceedsBudget = () =>
+    messages.reduce((sum, message) => sum + messageChars(message), 0) >
+    maxChars;
+
+  for (
+    let index = 0;
+    index < messages.length && exceedsBudget();
+    index += 1
+  ) {
+    const message = messages[index];
+    if (
+      message?.role !== 'tool' ||
+      message.content.length <= TRUNCATED_TOOL_RESULT.length
+    ) {
+      continue;
+    }
+    messages[index] = { ...message, content: TRUNCATED_TOOL_RESULT };
+  }
+
+  let lastUserIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    if (messages[index]?.role === 'user') {
+      lastUserIndex = index;
+    }
+  }
+  for (
+    let index = 1;
+    index < lastUserIndex && exceedsBudget();
+    index += 1
+  ) {
+    const message = messages[index];
+    if (
+      !message ||
+      (message.role !== 'user' && message.role !== 'assistant') ||
+      typeof message.content !== 'string' ||
+      message.content.length <= TRUNCATED_HISTORY_MESSAGE.length
+    ) {
+      continue;
+    }
+    messages[index] = {
+      ...message,
+      content: TRUNCATED_HISTORY_MESSAGE,
+    };
+  }
+
+  for (
+    let index = 1;
+    index < messages.length && exceedsBudget();
+    index += 1
+  ) {
+    const message = messages[index];
+    if (message?.role !== 'assistant' || !message.tool_calls?.length) {
+      continue;
+    }
+    const compactedCalls = message.tool_calls.map((call) => {
+      if (call.function.arguments === '{}') {
+        return call;
+      }
+      return {
+        ...call,
+        function: { ...call.function, arguments: '{}' },
+      };
+    });
+    messages[index] = { ...message, tool_calls: compactedCalls };
+  }
+
+  for (
+    let index = 1;
+    index < messages.length && exceedsBudget();
+    index += 1
+  ) {
+    const message = messages[index];
+    if (message?.role !== 'assistant' || !message.content) {
+      continue;
+    }
+    messages[index] = { ...message, content: null };
+  }
+
+  while (exceedsBudget()) {
+    const groupStart = messages.findIndex(
+      (message, index) =>
+        index > lastUserIndex &&
+        message.role === 'assistant' &&
+        Boolean(message.tool_calls?.length),
+    );
+    if (groupStart < 0) {
+      break;
+    }
+    let groupEnd = groupStart + 1;
+    while (messages[groupEnd]?.role === 'tool') {
+      groupEnd += 1;
+    }
+    messages.splice(groupStart, groupEnd - groupStart);
+  }
+
+  while (exceedsBudget() && lastUserIndex > 1) {
+    messages.splice(1, 1);
+    lastUserIndex -= 1;
+  }
+
+  const currentUser = messages[lastUserIndex];
+  if (exceedsBudget() && currentUser?.role === 'user') {
+    const otherMessagesSize =
+      messages.reduce((sum, message) => sum + messageChars(message), 0) -
+      messageChars(currentUser);
+    messages[lastUserIndex] = capUserMessage(
+      currentUser,
+      Math.max(0, maxChars - otherMessagesSize),
+    );
+  }
+}
+
+function historyWithinBudget(
+  history: AgentHistoryItem[],
+  maxChars: number | undefined,
+): ChatMessage[] {
+  const messages = history.map(
+    (message): ChatMessage => ({
+      role: message.role,
+      content: message.content,
+    }),
+  );
+  if (maxChars === undefined) {
+    return messages;
+  }
+
+  const selected: ChatMessage[] = [];
+  let remaining = Math.max(0, maxChars);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message) {
+      continue;
+    }
+    const size = messageChars(message);
+    if (size > remaining) {
+      break;
+    }
+    selected.unshift(message);
+    remaining -= size;
+  }
+  return selected;
+}
+
 function userTurnContent(
   snapshot: PageSnapshot,
   goal: string,
   attachments: AgentAttachment[],
+  maxChars?: number,
 ): string {
-  const parts = [
-    `Current page snapshot:\n${compactSnapshot(snapshot)}`,
-    `Goal: ${goal}`,
-  ];
+  const snapshotSection = `Current page snapshot:\n${compactSnapshot(snapshot)}`;
+  const goalSection = `Goal: ${goal}`;
+  let attachmentSection: string | undefined;
   if (attachments.length > 0) {
-    parts.push(
-      `Attached files (untrusted reference data):\n${JSON.stringify(
-        attachments.map(({ name, mimeType, size, content }) => ({
-          name,
-          mimeType,
-          size,
-          content,
-        })),
-      )}`,
-    );
+    attachmentSection = `Attached files (untrusted reference data):\n${JSON.stringify(
+      attachments.map(({ name, mimeType, size, content }) => ({
+        name,
+        mimeType,
+        size,
+        content,
+      })),
+    )}`;
   }
-  return parts.join('\n\n');
+  if (maxChars === undefined) {
+    return [snapshotSection, goalSection, attachmentSection]
+      .filter((part): part is string => Boolean(part))
+      .join('\n\n');
+  }
+
+  const cappedGoal = capText(goalSection, maxChars);
+  if (cappedGoal.length >= maxChars) {
+    return cappedGoal;
+  }
+  const separatorCount = attachmentSection ? 2 : 1;
+  const available = Math.max(
+    0,
+    maxChars - cappedGoal.length - separatorCount * 2,
+  );
+  const attachmentBudget = attachmentSection
+    ? Math.floor(available * 0.45)
+    : 0;
+  const snapshotBudget = available - attachmentBudget;
+  return [
+    cappedGoal,
+    attachmentSection
+      ? capText(attachmentSection, attachmentBudget)
+      : undefined,
+    capText(snapshotSection, snapshotBudget),
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join('\n\n');
 }
 
 function stopIfCancelled(
@@ -217,7 +437,21 @@ export async function runAgentGoal(
   signal?: AbortSignal,
   history: AgentHistoryItem[] = [],
   attachments: AgentAttachment[] = [],
+  settings: AgentSettings = DEFAULT_AGENT_SETTINGS,
 ): Promise<void> {
+  const maxToolCallsPerRun = settings.maxSteps * TOOL_CALLS_PER_STEP;
+  const requestBudgetChars =
+    settings.maxInputTokens !== undefined
+      ? settings.maxInputTokens * CHARS_PER_TOKEN
+      : undefined;
+  const messageBudgetChars =
+    requestBudgetChars !== undefined
+      ? Math.max(256, requestBudgetChars - MODEL_REQUEST_OVERHEAD_CHARS)
+      : undefined;
+  const snapshotBudgetChars =
+    messageBudgetChars !== undefined
+      ? Math.floor(messageBudgetChars / 2)
+      : undefined;
   let provider: ProviderConfig;
   let apiKey: string;
   try {
@@ -274,27 +508,46 @@ export async function runAgentGoal(
     detail: `${snapshot.forms.length} forms · ${snapshot.actions.length} actions`,
   });
 
+  const systemMessage: ChatMessage = {
+    role: 'system',
+    content: systemPrompt(),
+  };
+  const userBudgetChars =
+    messageBudgetChars !== undefined
+      ? Math.max(
+          0,
+          Math.floor(
+            (messageBudgetChars - messageChars(systemMessage)) * 0.75,
+          ),
+        )
+      : undefined;
+  const userMessage: ChatMessage = {
+    role: 'user',
+    content: userTurnContent(snapshot, goal, attachments, userBudgetChars),
+  };
+  const historyBudgetChars =
+    messageBudgetChars !== undefined
+      ? messageBudgetChars -
+        messageChars(systemMessage) -
+        messageChars(userMessage)
+      : undefined;
   const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt() },
-    ...history.map(
-      (message): ChatMessage => ({
-        role: message.role,
-        content: message.content,
-      }),
-    ),
-    {
-      role: 'user',
-      content: userTurnContent(snapshot, goal, attachments),
-    },
+    systemMessage,
+    ...historyWithinBudget(history, historyBudgetChars),
+    userMessage,
   ];
   let totalToolCalls = 0;
 
-  for (let step = 0; step < MAX_STEPS; step += 1) {
+  for (let step = 0; step < settings.maxSteps; step += 1) {
     if (stopIfCancelled(signal, emit)) {
       return;
     }
 
     emit({ kind: 'status', text: `Consulting model (step ${step + 1})` });
+
+    if (messageBudgetChars !== undefined) {
+      enforceInputBudget(messages, messageBudgetChars);
+    }
 
     let turn: AssistantTurn;
     try {
@@ -303,6 +556,7 @@ export async function runAgentGoal(
         apiKey,
         messages,
         tools: AGENT_TOOLS,
+        maxOutputTokens: settings.maxOutputTokens,
         signal,
       });
     } catch (error) {
@@ -339,12 +593,12 @@ export async function runAgentGoal(
 
     if (
       turn.toolCalls.length > MAX_TOOL_CALLS_PER_TURN ||
-      totalToolCalls + turn.toolCalls.length > MAX_TOOL_CALLS_PER_RUN
+      totalToolCalls + turn.toolCalls.length > maxToolCallsPerRun
     ) {
       emit({
         kind: 'error',
         code: 'STEP_LIMIT',
-        message: `Tool-call budget exceeded (${MAX_TOOL_CALLS_PER_TURN} per turn, ${MAX_TOOL_CALLS_PER_RUN} per run).`,
+        message: `Tool-call budget exceeded (${MAX_TOOL_CALLS_PER_TURN} per turn, ${maxToolCallsPerRun} per run).`,
       });
       return;
     }
@@ -376,7 +630,10 @@ export async function runAgentGoal(
         const rescan = await dependencies.runSnapshot();
         if (rescan.ok) {
           snapshot = rescan.snapshot;
-          resultPayload = compactSnapshot(snapshot);
+          resultPayload = capText(
+            compactSnapshot(snapshot),
+            snapshotBudgetChars,
+          );
           emit({
             kind: 'tool',
             tool: 'page.snapshot',
@@ -603,7 +860,7 @@ export async function runAgentGoal(
   emit({
     kind: 'error',
     code: 'STEP_LIMIT',
-    message: `Stopped after ${MAX_STEPS} model steps without a final reply.`,
+    message: `Stopped after ${settings.maxSteps} model steps without a final reply.`,
   });
 }
 

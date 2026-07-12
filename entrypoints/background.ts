@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser';
+import { readAgentSettings } from '../src/background/agent-settings';
 import { runAgentGoal } from '../src/background/agent-runtime';
 import { chatComplete } from '../src/background/model-client';
 import {
@@ -268,6 +269,10 @@ export default defineBackground(() => {
             signal,
           );
 
+        const settings = await readAgentSettings({
+          get: (key) => browser.storage.local.get(key),
+        });
+
         await runAgentGoal(
           runRequest.goal,
           {
@@ -276,13 +281,21 @@ export default defineBackground(() => {
             runFill,
             runClick,
             runScreenshot,
-            complete: ({ provider, apiKey, messages, tools, signal }) =>
+            complete: ({
+              provider,
+              apiKey,
+              messages,
+              tools,
+              maxOutputTokens,
+              signal,
+            }) =>
               chatComplete({
                 baseUrl: provider.baseUrl,
                 model: provider.model,
                 apiKey,
                 messages,
                 tools,
+                maxOutputTokens,
                 signal,
               }),
           },
@@ -290,6 +303,7 @@ export default defineBackground(() => {
           controller.signal,
           runRequest.history,
           runRequest.attachments,
+          settings,
         );
       })()
         .catch((error: unknown) => {
