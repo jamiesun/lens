@@ -8,7 +8,13 @@ import type {
   FieldFillOutcome,
   FillFieldValue,
 } from '../../src/protocol/page-commands';
+import type { AgentAttachment } from '../../src/protocol/agent-events';
 import { useAgentStore } from '../../src/sidepanel/agent-store';
+import {
+  FILE_ATTACHMENT_ACCEPT,
+  formatFileSize,
+  readFileAttachments,
+} from '../../src/sidepanel/file-attachments';
 import { useObserverStore } from '../../src/sidepanel/observer-store';
 import { useSiteAccessStore } from '../../src/sidepanel/site-access-store';
 import { useModalFocus } from '../../src/sidepanel/use-modal-focus';
@@ -71,6 +77,23 @@ function SendIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="m4 12 16-8-5 16-3-6-8-2Z" />
       <path d="m12 14 8-10" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 3h8l4 4v14H6Z" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" />
     </svg>
   );
 }
@@ -536,8 +559,14 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [attachments, setAttachments] = useState<AgentAttachment[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string>();
   const [draft, setDraft] = useState('');
   const chatEnd = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const addMenu = useRef<HTMLDivElement>(null);
 
   const vault = useAgentStore((state) => state.vault);
   const initialized = useAgentStore((state) => state.initialized);
@@ -659,6 +688,32 @@ export default function App() {
     chatEnd.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, agentPhase]);
 
+  useEffect(() => {
+    if (!addMenuOpen) {
+      return;
+    }
+    const closeMenu = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent) {
+        if (event.key === 'Escape') {
+          setAddMenuOpen(false);
+        }
+        return;
+      }
+      if (
+        event.target instanceof Node &&
+        !addMenu.current?.contains(event.target)
+      ) {
+        setAddMenuOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeMenu);
+    document.addEventListener('keydown', closeMenu);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenu);
+      document.removeEventListener('keydown', closeMenu);
+    };
+  }, [addMenuOpen]);
+
   if (!initialized) {
     return (
       <div className="chat-app chat-app--loading" data-testid="app-loading">
@@ -669,12 +724,47 @@ export default function App() {
   }
 
   const submitGoal = (goal: string) => {
-    const normalized = goal.trim();
-    if (!normalized || vault?.status !== 'unlocked' || agentPhase === 'running') {
+    const normalized =
+      goal.trim() || (attachments.length > 0 ? '请阅读并分析附件。' : '');
+    if (
+      !normalized ||
+      vault?.status !== 'unlocked' ||
+      agentPhase === 'running' ||
+      attachmentBusy
+    ) {
       return;
     }
+    const submittedAttachments = attachments;
     setDraft('');
-    runGoal(normalized);
+    setAttachments([]);
+    setAttachmentError(undefined);
+    setAddMenuOpen(false);
+    runGoal(normalized, submittedAttachments);
+  };
+
+  const addFiles = async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+    setAttachmentBusy(true);
+    setAttachmentError(undefined);
+    try {
+      setAttachments(await readFileAttachments(files, attachments));
+    } catch (error) {
+      setAttachmentError(
+        error instanceof Error ? error.message : '无法添加所选文件。',
+      );
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
+
+  const startNewConversation = () => {
+    setDraft('');
+    setAttachments([]);
+    setAttachmentError(undefined);
+    setAddMenuOpen(false);
+    clearConversation();
   };
 
   const pageLabel =
@@ -709,7 +799,7 @@ export default function App() {
             aria-label="新建对话"
             title="新建对话"
             data-testid="new-chat"
-            onClick={clearConversation}
+            onClick={startNewConversation}
           >
             <NewChatIcon />
           </button>
@@ -719,6 +809,7 @@ export default function App() {
             title="历史记录"
             data-testid="history-toggle"
             onClick={() => {
+              setAddMenuOpen(false);
               setSettingsOpen(false);
               setContextOpen(false);
               setHistoryOpen(true);
@@ -732,6 +823,7 @@ export default function App() {
             title="页面信息"
             data-testid="context-toggle"
             onClick={() => {
+              setAddMenuOpen(false);
               setSettingsOpen(false);
               setHistoryOpen(false);
               setContextOpen(true);
@@ -741,11 +833,12 @@ export default function App() {
           </button>
           <button
             type="button"
-            aria-label="模型设置"
-            title="模型设置"
+            aria-label="设置"
+            title="设置"
             data-testid="settings-toggle"
             data-vault-status={vault?.status ?? 'loading'}
             onClick={() => {
+              setAddMenuOpen(false);
               setContextOpen(false);
               setHistoryOpen(false);
               setSettingsOpen(true);
@@ -802,7 +895,23 @@ export default function App() {
         {messages.map((message, index) =>
           message.role === 'user' ? (
             <div className="user-row" key={message.id} data-chat-role="user">
-              <div className="user-bubble">{message.text}</div>
+              <div className="user-bubble">
+                {message.attachments?.length ? (
+                  <div
+                    className="message-attachments"
+                    data-testid="message-attachments"
+                  >
+                    {message.attachments.map((attachment) => (
+                      <span key={`${attachment.name}-${attachment.size}`}>
+                        <FileIcon />
+                        <span>{attachment.name}</span>
+                        <small>{formatFileSize(attachment.size)}</small>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <span className="user-bubble__text">{message.text}</span>
+              </div>
             </div>
           ) : (
             <div
@@ -899,13 +1008,47 @@ export default function App() {
         </button>
 
         <div className="composer-box">
+          {attachments.length > 0 && (
+            <div className="attachment-list" data-testid="attachment-list">
+              {attachments.map((attachment) => (
+                <div
+                  className="attachment-chip"
+                  data-testid="attachment-chip"
+                  key={`${attachment.name}-${attachment.size}`}
+                >
+                  <FileIcon />
+                  <span>
+                    <strong title={attachment.name}>{attachment.name}</strong>
+                    <small>{formatFileSize(attachment.size)}</small>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`移除文件 ${attachment.name}`}
+                    disabled={agentPhase === 'running'}
+                    onClick={() => {
+                      setAttachments((current) =>
+                        current.filter(
+                          (candidate) => candidate.name !== attachment.name,
+                        ),
+                      );
+                      setAttachmentError(undefined);
+                    }}
+                  >
+                    <CloseIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <textarea
             value={draft}
             rows={2}
             data-testid="agent-goal"
             placeholder={
               vault?.status === 'unlocked'
-                ? '输入你想在当前页面完成的事情'
+                ? attachments.length > 0
+                  ? '补充你希望如何处理这些文件（可选）'
+                  : '输入你想在当前页面完成的事情'
                 : '请先配置或解锁模型'
             }
             disabled={vault?.status !== 'unlocked' || agentPhase === 'running'}
@@ -921,22 +1064,77 @@ export default function App() {
               }
             }}
           />
-          <div className="composer-actions">
-            <button
-              type="button"
-              className="composer-icon"
-              aria-label="模型设置"
-              onClick={() => {
-                setContextOpen(false);
-                setHistoryOpen(false);
-                setSettingsOpen(true);
-              }}
+          {attachmentError && (
+            <p
+              className="attachment-error"
+              data-testid="attachment-error"
+              role="alert"
             >
-              <SettingsIcon />
-            </button>
-            <span className="model-name">
-              {vault?.provider?.model ?? '未配置模型'}
-            </span>
+              {attachmentError}
+            </p>
+          )}
+          <div className="composer-actions">
+            <div className="composer-add" ref={addMenu}>
+              <button
+                type="button"
+                className={`composer-icon${addMenuOpen ? ' is-open' : ''}`}
+                aria-label="添加内容"
+                aria-controls="composer-add-menu"
+                aria-expanded={addMenuOpen}
+                title="添加内容"
+                data-testid="attachment-toggle"
+                disabled={
+                  vault?.status !== 'unlocked' ||
+                  agentPhase === 'running' ||
+                  attachmentBusy
+                }
+                onClick={() => setAddMenuOpen((open) => !open)}
+              >
+                <PlusIcon />
+              </button>
+              {addMenuOpen && (
+                <div
+                  className="composer-add-menu"
+                  id="composer-add-menu"
+                  data-testid="composer-add-menu"
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    data-testid="file-picker-trigger"
+                    onClick={() => {
+                      setAddMenuOpen(false);
+                      fileInput.current?.click();
+                    }}
+                  >
+                    <FileIcon />
+                    <span>
+                      <strong>添加文件</strong>
+                      <small>文本、代码或数据 · 单个 32 KB</small>
+                    </span>
+                  </button>
+                </div>
+              )}
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                multiple
+                accept={FILE_ATTACHMENT_ACCEPT}
+                data-testid="attachment-input"
+                disabled={
+                  vault?.status !== 'unlocked' ||
+                  agentPhase === 'running' ||
+                  attachmentBusy
+                }
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? []);
+                  event.currentTarget.value = '';
+                  void addFiles(files);
+                }}
+              />
+            </div>
             {agentPhase === 'running' ? (
               <button
                 type="button"
@@ -953,7 +1151,11 @@ export default function App() {
                 className="send-button"
                 aria-label="发送"
                 data-testid="run-agent"
-                disabled={!draft.trim() || vault?.status !== 'unlocked'}
+                disabled={
+                  (!draft.trim() && attachments.length === 0) ||
+                  vault?.status !== 'unlocked' ||
+                  attachmentBusy
+                }
                 onClick={() => submitGoal(draft)}
               >
                 <SendIcon />

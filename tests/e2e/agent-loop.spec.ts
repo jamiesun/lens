@@ -94,6 +94,65 @@ test('renders assistant Markdown and LaTeX formulas safely', async ({
   await expect(reply.locator('img')).toHaveCount(0);
 });
 
+test('adds a text file from the plus menu and preserves it after a rejected selection', async ({
+  context,
+  extensionId,
+}) => {
+  const { panel, target } = await openObserver(
+    context,
+    extensionId,
+    customerFixtureUrl,
+  );
+  await configureMockProvider(panel);
+
+  await expect(
+    panel.getByRole('button', { name: '设置', exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    panel.getByRole('button', { name: '模型设置', exact: true }),
+  ).toHaveCount(0);
+
+  await panel.getByTestId('attachment-toggle').click();
+  await expect(panel.getByTestId('composer-add-menu')).toContainText('添加文件');
+
+  const attachmentInput = panel.getByTestId('attachment-input');
+  await attachmentInput.setInputFiles({
+    name: 'brief.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# Project brief\nProject code: ORBIT-42'),
+  });
+  await expect(panel.getByTestId('attachment-chip')).toContainText('brief.md');
+
+  await attachmentInput.setInputFiles({
+    name: 'diagram.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from([0, 1, 2, 3]),
+  });
+  await expect(panel.getByTestId('attachment-error')).toContainText(
+    '不是受支持的文本、代码或数据文件',
+  );
+  await expect(panel.getByTestId('attachment-chip')).toContainText('brief.md');
+
+  await panel
+    .getByTestId('agent-goal')
+    .fill('ATTACHMENT_TEST：附件中的项目代号是什么？');
+  await target.bringToFront();
+  await panel
+    .getByTestId('run-agent')
+    .evaluate((element: HTMLButtonElement) => element.click());
+
+  await expect(panel.getByTestId('assistant-reply')).toContainText('ORBIT-42');
+  await expect(panel.getByTestId('attachment-list')).toHaveCount(0);
+  await expect(panel.getByTestId('message-attachments')).toContainText(
+    'brief.md',
+  );
+
+  await panel.reload();
+  await expect(panel.getByTestId('message-attachments')).toContainText(
+    'brief.md',
+  );
+});
+
 test('locks the vault and rejects a wrong password before recovering', async ({
   context,
   extensionId,

@@ -1,10 +1,26 @@
 import { z } from 'zod';
 import { ScreenshotResultSchema } from './screenshot';
 
+export const MAX_AGENT_ATTACHMENT_COUNT = 4;
+export const MAX_AGENT_ATTACHMENT_BYTES = 32 * 1_024;
+
+export const AgentAttachmentSchema = z
+  .object({
+    name: z.string().min(1).max(180),
+    mimeType: z.string().min(1).max(100),
+    size: z.number().int().min(1).max(MAX_AGENT_ATTACHMENT_BYTES),
+    content: z.string().min(1).max(MAX_AGENT_ATTACHMENT_BYTES),
+  })
+  .strict();
+
 export const AgentRunRequestSchema = z
   .object({
     type: z.literal('lens.agent.run'),
     goal: z.string().min(1).max(2_000),
+    attachments: z
+      .array(AgentAttachmentSchema)
+      .max(MAX_AGENT_ATTACHMENT_COUNT)
+      .default([]),
     history: z
       .array(
         z
@@ -86,6 +102,7 @@ export const AgentEventSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type AgentRunRequest = z.infer<typeof AgentRunRequestSchema>;
+export type AgentAttachment = z.infer<typeof AgentAttachmentSchema>;
 export type AgentHistoryItem = AgentRunRequest['history'][number];
 export type AgentPortRequest = z.infer<typeof AgentPortRequestSchema>;
 export type AgentEvent = z.infer<typeof AgentEventSchema>;
