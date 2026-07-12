@@ -2,6 +2,7 @@ import { browser } from 'wxt/browser';
 import {
   AGENT_PORT_NAME,
   AgentEventSchema,
+  type AgentAttachment,
   type AgentEvent,
   type AgentHistoryItem,
 } from '../protocol/agent-events';
@@ -209,6 +210,7 @@ export interface AgentRunHandle {
 export function startAgentRun(
   goal: string,
   history: AgentHistoryItem[],
+  attachments: AgentAttachment[],
   onEvent: (event: AgentEvent) => void,
   onUnexpectedDisconnect: () => void,
 ): AgentRunHandle {
@@ -246,6 +248,7 @@ export function startAgentRun(
     type: 'lens.agent.run',
     goal,
     history,
+    attachments,
   });
 
   return {

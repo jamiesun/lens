@@ -72,6 +72,31 @@ async function respondWithMockCompletion(request, response) {
     if (
       !hasToolResult &&
       typeof userMessage?.content === 'string' &&
+      userMessage.content.includes('ATTACHMENT_TEST')
+    ) {
+      const receivedAttachment =
+        userMessage.content.includes('"name":"brief.md"') &&
+        userMessage.content.includes('ORBIT-42');
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: receivedAttachment
+                  ? '附件中的项目代号是 ORBIT-42。'
+                  : '没有收到附件内容。',
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+
+    if (
+      !hasToolResult &&
+      typeof userMessage?.content === 'string' &&
       userMessage.content.includes('记住暗号：海蓝')
     ) {
       response.writeHead(200, { 'content-type': 'application/json' });
