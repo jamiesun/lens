@@ -567,6 +567,8 @@ export default function App() {
   const chatEnd = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const addMenu = useRef<HTMLDivElement>(null);
+  const settingsToggle = useRef<HTMLButtonElement>(null);
+  const settingsShouldRestoreFocus = useRef(false);
 
   const vault = useAgentStore((state) => state.vault);
   const initialized = useAgentStore((state) => state.initialized);
@@ -689,6 +691,13 @@ export default function App() {
   }, [messages, agentPhase]);
 
   useEffect(() => {
+    if (!settingsOpen && settingsShouldRestoreFocus.current) {
+      settingsShouldRestoreFocus.current = false;
+      settingsToggle.current?.focus();
+    }
+  }, [settingsOpen]);
+
+  useEffect(() => {
     if (!addMenuOpen) {
       return;
     }
@@ -767,6 +776,11 @@ export default function App() {
     clearConversation();
   };
 
+  const closeSettings = () => {
+    settingsShouldRestoreFocus.current = true;
+    setSettingsOpen(false);
+  };
+
   const pageLabel =
     (observerPhase === 'ready' ? snapshot?.title : undefined) ??
     (observerPhase === 'scanning'
@@ -777,12 +791,15 @@ export default function App() {
 
   return (
     <div className="chat-app">
-      <div
-        className="chat-frame"
-        aria-hidden={
-          settingsOpen || contextOpen || historyOpen ? true : undefined
-        }
-      >
+      {settingsOpen ? (
+        <ProviderSettings onClose={closeSettings} />
+      ) : (
+        <>
+          <div
+            className="chat-frame"
+            data-testid="chat-view"
+            aria-hidden={contextOpen || historyOpen ? true : undefined}
+          >
         <header className="chat-header">
         <div className="chat-title">
           <img src="/lens-logo.svg" alt="" className="lens-logo" />
@@ -832,6 +849,7 @@ export default function App() {
             <ContextIcon />
           </button>
           <button
+            ref={settingsToggle}
             type="button"
             aria-label="设置"
             title="设置"
@@ -1170,20 +1188,18 @@ export default function App() {
           本地填写与点击可自动执行 · 提交和高风险操作已被运行时阻止
         </span>
         </footer>
-      </div>
+          </div>
 
-      <ProviderSettings
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
-      <PageContextDrawer
-        open={contextOpen}
-        onClose={() => setContextOpen(false)}
-      />
-      <HistoryDrawer
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-      />
+          <PageContextDrawer
+            open={contextOpen}
+            onClose={() => setContextOpen(false)}
+          />
+          <HistoryDrawer
+            open={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+          />
+        </>
+      )}
     </div>
   );
 }
