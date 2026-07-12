@@ -66,6 +66,34 @@ test('runs goal -> snapshot -> model tool call -> page fill -> final reply', asy
   );
 });
 
+test('renders assistant Markdown and LaTeX formulas safely', async ({
+  context,
+  extensionId,
+}) => {
+  const { panel, target } = await openObserver(
+    context,
+    extensionId,
+    customerFixtureUrl,
+  );
+  await configureMockProvider(panel);
+  await panel.getByTestId('agent-goal').fill('MATH_RENDER_TEST');
+
+  await target.bringToFront();
+  await panel
+    .getByTestId('run-agent')
+    .evaluate((element: HTMLButtonElement) => element.click());
+
+  const reply = panel.getByTestId('assistant-reply');
+  await expect(
+    reply.getByRole('heading', { name: '汉诺塔公式' }),
+  ).toBeVisible();
+  await expect(reply.locator('.katex')).toHaveCount(3);
+  await expect(reply.locator('.katex-display')).toHaveCount(1);
+  await expect(reply.locator('.katex').last()).toContainText('\\notacommand');
+  await expect(reply).not.toContainText('\\(2^n - 1\\)');
+  await expect(reply.locator('img')).toHaveCount(0);
+});
+
 test('adds a text file from the plus menu and preserves it after a rejected selection', async ({
   context,
   extensionId,

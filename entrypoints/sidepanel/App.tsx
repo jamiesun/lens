@@ -19,6 +19,7 @@ import { useObserverStore } from '../../src/sidepanel/observer-store';
 import { useSiteAccessStore } from '../../src/sidepanel/site-access-store';
 import { useModalFocus } from '../../src/sidepanel/use-modal-focus';
 import { shouldHandleActionInvocation } from '../../src/protocol/messages';
+import { AssistantMarkdown } from '../../src/sidepanel/assistant-markdown';
 import { ProviderSettings } from './ProviderSettings';
 
 const EDITABLE_FIELD_TYPES = new Set([
@@ -925,7 +926,7 @@ export default function App() {
                 className="assistant-message"
                 data-testid={index === messages.length - 1 ? 'assistant-reply' : undefined}
               >
-                {message.text}
+                <AssistantMarkdown>{message.text}</AssistantMarkdown>
                 {message.screenshot && (
                   <figure
                     className="screenshot-card"
