@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { ProviderConfig } from '../protocol/provider';
-import type { AgentEvent } from '../protocol/agent-events';
+import type {
+  AgentAttachment,
+  AgentEvent,
+} from '../protocol/agent-events';
 import type { ScreenshotMode } from '../protocol/screenshot';
 import type { VaultState } from '../protocol/vault-messages';
 import {
@@ -56,7 +59,7 @@ interface AgentState {
   unlock: (password: string) => Promise<boolean>;
   lock: () => Promise<void>;
   clear: () => Promise<void>;
-  runGoal: (goal: string) => void;
+  runGoal: (goal: string, attachments?: AgentAttachment[]) => void;
   cancelRun: () => void;
   clearConversation: () => void;
   loadConversation: (id: string) => Promise<void>;
@@ -244,7 +247,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  runGoal(goal) {
+  runGoal(goal, attachments = []) {
     if (
       !get().initialized ||
       get().phase === 'running' ||
@@ -264,6 +267,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       role: 'user',
       text: goal,
       createdAt: new Date().toISOString(),
+      ...(attachments.length > 0
+        ? {
+            attachments: attachments.map(({ name, mimeType, size }) => ({
+              name,
+              mimeType,
+              size,
+            })),
+          }
+        : {}),
     };
     const nextMessages = [...previousMessages, userMessage];
     set({
@@ -300,8 +312,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         .slice(-12)
         .map((message) => ({
           role: message.role,
-          content: message.text.slice(0, 4_000),
+          content: [
+            message.text,
+            message.attachments?.length
+              ? `Earlier attachment metadata (contents are not retained): ${message.attachments
+                  .map((attachment) => attachment.name)
+                  .join(', ')}`
+              : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n')
+            .slice(0, 4_000),
         })),
+      attachments,
       (event) => {
         if (get().runGeneration !== runGeneration) {
           return;

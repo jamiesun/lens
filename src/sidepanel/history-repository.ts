@@ -8,11 +8,18 @@ export interface StoredScreenshot {
   truncated: boolean;
 }
 
+export interface StoredFileAttachment {
+  name: string;
+  mimeType: string;
+  size: number;
+}
+
 export interface StoredChatEntry {
   id: string;
   role: 'user' | 'assistant';
   text: string;
   createdAt: string;
+  attachments?: StoredFileAttachment[];
   screenshot?: StoredScreenshot;
 }
 
@@ -338,6 +345,9 @@ export class HistoryRepository {
             role: message.role,
             text: message.text,
             createdAt: message.createdAt,
+            ...(message.attachments
+              ? { attachments: message.attachments }
+              : {}),
             ...(message.screenshot && stored
               ? {
                   screenshot: {
@@ -407,6 +417,9 @@ function serializeMessage(
         role: message.role,
         text: message.text,
         createdAt: message.createdAt,
+        ...(message.attachments
+          ? { attachments: message.attachments }
+          : {}),
       } satisfies PersistedMessage,
     };
   }
@@ -418,6 +431,9 @@ function serializeMessage(
       role: message.role,
       text: message.text,
       createdAt: message.createdAt,
+      ...(message.attachments
+        ? { attachments: message.attachments }
+        : {}),
       screenshot: {
         id: message.id,
         ...metadata,
@@ -573,7 +589,26 @@ function isPersistedMessage(value: unknown): value is PersistedMessage {
     typeof message.conversationId === 'string' &&
     (message.role === 'user' || message.role === 'assistant') &&
     typeof message.text === 'string' &&
-    typeof message.createdAt === 'string'
+    typeof message.createdAt === 'string' &&
+    (message.attachments === undefined ||
+      (Array.isArray(message.attachments) &&
+        message.attachments.every(isStoredFileAttachment)))
+  );
+}
+
+function isStoredFileAttachment(
+  value: unknown,
+): value is StoredFileAttachment {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const attachment = value as Partial<StoredFileAttachment>;
+  return (
+    typeof attachment.name === 'string' &&
+    typeof attachment.mimeType === 'string' &&
+    typeof attachment.size === 'number' &&
+    Number.isFinite(attachment.size) &&
+    attachment.size > 0
   );
 }
 

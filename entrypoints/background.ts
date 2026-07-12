@@ -289,6 +289,7 @@ export default defineBackground(() => {
           emit,
           controller.signal,
           runRequest.history,
+          runRequest.attachments,
         );
       })()
         .catch((error: unknown) => {
