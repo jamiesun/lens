@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react';
 import { ProviderConfigSchema } from '../../src/protocol/provider';
 import { useAgentStore } from '../../src/sidepanel/agent-store';
-import { useModalFocus } from '../../src/sidepanel/use-modal-focus';
 
 export function ProviderSettings({
-  open,
   onClose,
 }: {
-  open: boolean;
   onClose: () => void;
 }) {
   const vault = useAgentStore((state) => state.vault);
@@ -30,7 +27,6 @@ export function ProviderSettings({
       onClose();
     }
   };
-  const dialogRef = useModalFocus<HTMLElement>(open, requestClose);
 
   useEffect(() => {
     if (vault?.provider) {
@@ -38,10 +34,6 @@ export function ProviderSettings({
       setModel(vault.provider.model);
     }
   }, [vault?.provider]);
-
-  if (!open) {
-    return null;
-  }
 
   const handleConfigure = async () => {
     const parsed = ProviderConfigSchema.safeParse({ baseUrl, model });
@@ -77,167 +69,167 @@ export function ProviderSettings({
   };
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          requestClose();
-        }
-      }}
-    >
-      <section
-        ref={dialogRef}
-        tabIndex={-1}
-        className="settings-card"
-        data-testid="provider-settings"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="provider-settings-title"
-      >
-      <div className="settings-card__header">
-        <div>
-          <h2 id="provider-settings-title">模型与密钥</h2>
-          <p>密钥只加密保存在本机，浏览器重启后需要重新解锁。</p>
-        </div>
+    <div className="settings-page">
+      <header className="settings-page__topbar">
         <button
+          autoFocus
           type="button"
-          className="modal-close"
-          aria-label="关闭设置"
+          className="settings-back"
+          aria-label="返回对话"
+          data-testid="settings-back"
           disabled={busy}
           onClick={requestClose}
         >
-          ×
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
         </button>
-      </div>
-      <span
-        className={`vault-state vault-state--${vault?.status ?? 'loading'}`}
-        data-testid="vault-status"
+        <div className="settings-page__title">
+          <h1>设置</h1>
+          <span>Lens</span>
+        </div>
+      </header>
+      <main
+        className="settings-page__content"
+        data-testid="provider-settings"
+        aria-labelledby="provider-settings-title"
       >
-        {vault?.status ?? 'loading'}
-      </span>
-
-      {vault?.status === 'locked' ? (
-        <div className="unlock-row">
-          <input
-            type="password"
-            value={password}
-            placeholder="Master password"
-            data-testid="vault-password"
-            disabled={busy}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <button
-            type="button"
-            className="settings-action"
-            disabled={busy}
-            data-testid="unlock-vault"
-            onClick={() => void handleUnlock()}
+        <section className="settings-panel">
+          <div className="settings-panel__header">
+            <div>
+              <h2 id="provider-settings-title">模型与密钥</h2>
+              <p>密钥只加密保存在本机，浏览器重启后需要重新解锁。</p>
+            </div>
+          </div>
+          <span
+            className={`vault-state vault-state--${vault?.status ?? 'loading'}`}
+            data-testid="vault-status"
           >
-            UNLOCK
-          </button>
-        </div>
-      ) : (
-        <div className="settings-form">
-          <label>
-            <span>API 地址</span>
-            <input
-              value={baseUrl}
-              data-testid="provider-base-url"
-              disabled={busy}
-              onChange={(event) => setBaseUrl(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>模型</span>
-            <input
-              value={model}
-              data-testid="provider-model"
-              disabled={busy}
-              onChange={(event) => setModel(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>API Key</span>
-            <input
-              type="password"
-              value={apiKey}
-              placeholder={vault?.status === 'unlocked' ? 'Replace key' : 'sk-…'}
-              data-testid="provider-api-key"
-              disabled={busy}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-          </label>
-          <label>
-            <span>本地主密码</span>
-            <input
-              type="password"
-              value={password}
-              placeholder="8+ characters"
-              data-testid="vault-password"
-              disabled={busy}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="settings-action settings-action--primary"
-            disabled={busy}
-            data-testid="save-provider"
-            onClick={() => void handleConfigure()}
-          >
-            {busy ? '正在加密…' : '保存并解锁'}
-          </button>
-        </div>
-      )}
-
-      {(localError || error) && (
-        <p className="settings-error" role="alert">
-          {localError ?? error}
-        </p>
-      )}
-      {warning && <p className="settings-warning">{warning}</p>}
-
-      {vault && vault.status !== 'unconfigured' && (
-        <div className="settings-footer">
-          <span>
-            {vault.provider?.model} · {vault.provider?.baseUrl}
+            {vault?.status ?? 'loading'}
           </span>
-          <div>
-            {vault.status === 'unlocked' && (
+
+          {vault?.status === 'locked' ? (
+            <div className="unlock-row">
+              <input
+                type="password"
+                value={password}
+                placeholder="Master password"
+                data-testid="vault-password"
+                disabled={busy}
+                onChange={(event) => setPassword(event.target.value)}
+              />
               <button
                 type="button"
-                data-testid="lock-vault"
+                className="settings-action"
                 disabled={busy}
-                onClick={() => void lock()}
+                data-testid="unlock-vault"
+                onClick={() => void handleUnlock()}
               >
-                锁定
+                UNLOCK
               </button>
-            )}
-            <button
-              type="button"
-              data-testid="clear-vault"
-              disabled={busy}
-              className={confirmClear ? 'is-confirming' : ''}
-              onClick={() => {
-                if (confirmClear) {
-                  void clear();
-                  setConfirmClear(false);
-                } else {
-                  setConfirmClear(true);
-                }
-              }}
-            >
-              {confirmClear ? '确认清除' : '清除'}
-            </button>
-          </div>
-        </div>
-      )}
+            </div>
+          ) : (
+            <div className="settings-form">
+              <label>
+                <span>API 地址</span>
+                <input
+                  value={baseUrl}
+                  data-testid="provider-base-url"
+                  disabled={busy}
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>模型</span>
+                <input
+                  value={model}
+                  data-testid="provider-model"
+                  disabled={busy}
+                  onChange={(event) => setModel(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>API Key</span>
+                <input
+                  type="password"
+                  value={apiKey}
+                  placeholder={vault?.status === 'unlocked' ? 'Replace key' : 'sk-…'}
+                  data-testid="provider-api-key"
+                  disabled={busy}
+                  onChange={(event) => setApiKey(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>本地主密码</span>
+                <input
+                  type="password"
+                  value={password}
+                  placeholder="8+ characters"
+                  data-testid="vault-password"
+                  disabled={busy}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="settings-action settings-action--primary"
+                disabled={busy}
+                data-testid="save-provider"
+                onClick={() => void handleConfigure()}
+              >
+                {busy ? '正在加密…' : '保存并解锁'}
+              </button>
+            </div>
+          )}
 
-      <p className="settings-note">
-        API Key 使用 AES-GCM 加密；解锁密钥只保留在当前浏览器会话中。
-      </p>
-      </section>
+          {(localError || error) && (
+            <p className="settings-error" role="alert">
+              {localError ?? error}
+            </p>
+          )}
+          {warning && <p className="settings-warning">{warning}</p>}
+
+          {vault && vault.status !== 'unconfigured' && (
+            <div className="settings-footer">
+              <span>
+                {vault.provider?.model} · {vault.provider?.baseUrl}
+              </span>
+              <div>
+                {vault.status === 'unlocked' && (
+                  <button
+                    type="button"
+                    data-testid="lock-vault"
+                    disabled={busy}
+                    onClick={() => void lock()}
+                  >
+                    锁定
+                  </button>
+                )}
+                <button
+                  type="button"
+                  data-testid="clear-vault"
+                  disabled={busy}
+                  className={confirmClear ? 'is-confirming' : ''}
+                  onClick={() => {
+                    if (confirmClear) {
+                      void clear();
+                      setConfirmClear(false);
+                    } else {
+                      setConfirmClear(true);
+                    }
+                  }}
+                >
+                  {confirmClear ? '确认清除' : '清除'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <p className="settings-note">
+            API Key 使用 AES-GCM 加密；解锁密钥只保留在当前浏览器会话中。
+          </p>
+        </section>
+      </main>
     </div>
   );
 }

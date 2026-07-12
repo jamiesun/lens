@@ -23,6 +23,30 @@ async function configureMockProvider(panel: Page): Promise<void> {
   await expect(panel.getByTestId('settings-toggle')).toBeFocused();
 }
 
+test('opens settings as a full-panel page instead of a dialog', async ({
+  context,
+  extensionId,
+}) => {
+  const { panel } = await openObserver(
+    context,
+    extensionId,
+    customerFixtureUrl,
+  );
+
+  await expect(panel.getByTestId('chat-view')).toBeVisible();
+  await panel.getByTestId('settings-toggle').click();
+
+  await expect(panel.getByTestId('provider-settings')).toBeVisible();
+  await expect(panel.getByTestId('chat-view')).toHaveCount(0);
+  await expect(panel.getByRole('dialog')).toHaveCount(0);
+  await expect(panel.getByTestId('settings-back')).toBeFocused();
+
+  await panel.getByTestId('settings-back').click();
+  await expect(panel.getByTestId('provider-settings')).toHaveCount(0);
+  await expect(panel.getByTestId('chat-view')).toBeVisible();
+  await expect(panel.getByTestId('settings-toggle')).toBeFocused();
+});
+
 test('runs goal -> snapshot -> model tool call -> page fill -> final reply', async ({
   context,
   extensionId,
@@ -167,8 +191,10 @@ test('locks the vault and rejects a wrong password before recovering', async ({
   await panel.getByTestId('settings-toggle').click();
   await panel.getByTestId('lock-vault').click();
   await expect(panel.getByTestId('vault-status')).toHaveText('locked');
+  await panel.getByTestId('settings-back').click();
   await expect(panel.getByTestId('agent-goal')).toBeDisabled();
 
+  await panel.getByTestId('settings-toggle').click();
   await panel.getByTestId('vault-password').fill('wrong password');
   await panel.getByTestId('unlock-vault').click();
   await expect(panel.getByRole('alert')).toContainText(
@@ -206,6 +232,7 @@ test('locking is a cancellation barrier for an in-flight model request', async (
   await panel.getByTestId('settings-toggle').click();
   await panel.getByTestId('lock-vault').click();
   await expect(panel.getByTestId('vault-status')).toHaveText('locked');
+  await panel.getByTestId('settings-back').click();
   await panel.waitForTimeout(3_300);
 
   await expect(panel.getByTestId('assistant-reply')).toHaveCount(0);
