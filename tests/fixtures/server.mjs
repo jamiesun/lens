@@ -113,6 +113,38 @@ async function respondWithMockCompletion(request, response) {
     if (
       !hasToolResult &&
       typeof userMessage?.content === 'string' &&
+      userMessage.content.includes('MATH_RENDER_TEST')
+    ) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  '# 汉诺塔公式',
+                  '',
+                  '最少步数是 \\(2^n - 1\\)。',
+                  '',
+                  '\\[',
+                  'T(n)=2T(n-1)+1',
+                  '\\]',
+                  '',
+                  '无效公式保持可读：\\(\\notacommand\\)。',
+                  '',
+                  '![不应加载](https://example.invalid/tracker.png)',
+                ].join('\n'),
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+
+    if (
+      !hasToolResult &&
+      typeof userMessage?.content === 'string' &&
       userMessage.content.includes('SLOW_AGENT_TEST')
     ) {
       await new Promise((resolve) => setTimeout(resolve, 3_000));

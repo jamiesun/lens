@@ -334,15 +334,116 @@ svg {
 }
 
 .assistant-message {
+  min-width: 0;
   padding: 2px 4px 0 0;
   color: #dddddd;
   font-size: 14px;
   line-height: 1.75;
-  white-space: pre-wrap;
 }
 
 .assistant-message--error {
   color: #eab0ab;
+  white-space: pre-wrap;
+}
+
+.assistant-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assistant-markdown > :first-child {
+  margin-top: 0;
+}
+
+.assistant-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.assistant-markdown p {
+  margin: 0 0 0.72em;
+  white-space: pre-wrap;
+}
+
+.assistant-markdown h1,
+.assistant-markdown h2,
+.assistant-markdown h3,
+.assistant-markdown h4 {
+  margin: 1.15em 0 0.45em;
+  color: var(--text);
+  font-size: 1em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.assistant-markdown h1 {
+  font-size: 1.24em;
+}
+
+.assistant-markdown h2 {
+  font-size: 1.13em;
+}
+
+.assistant-markdown ul,
+.assistant-markdown ol {
+  margin: 0.5em 0 0.8em;
+  padding-left: 1.5em;
+}
+
+.assistant-markdown li + li {
+  margin-top: 0.28em;
+}
+
+.assistant-markdown li > p {
+  margin: 0;
+}
+
+.assistant-markdown blockquote {
+  margin: 0.75em 0;
+  padding-left: 0.9em;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+
+.assistant-markdown code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.88em;
+}
+
+.assistant-markdown :not(pre) > code {
+  padding: 0.14em 0.36em;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.assistant-markdown pre {
+  max-width: 100%;
+  margin: 0.75em 0;
+  padding: 11px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: #0d0e0e;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.assistant-markdown a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.assistant-markdown .katex {
+  font-size: 1.05em;
+}
+
+.assistant-markdown .katex-display {
+  max-width: 100%;
+  margin: 0.8em 0;
+  padding: 0.2em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .screenshot-card {

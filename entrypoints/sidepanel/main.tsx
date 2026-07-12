@@ -1,6 +1,7 @@
 import '@fontsource-variable/ibm-plex-sans/wdth.css';
 import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
+import 'katex/dist/katex.min.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
