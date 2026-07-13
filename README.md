@@ -46,9 +46,17 @@ window.__lensPageToolsV1.tools.set('inventory_lookup', {
 });
 ```
 
-约束：工具声明非法（命名、风险值、Schema 或数量超限）时整个注册表被拒绝；`execute` 结果必须是 JSON 可序列化值且默认 10 秒超时；页面刷新后注册表随会话 ID 重建，旧调用自动失效。协议 Schema 见 `src/protocol/page-tools.ts`。
+约束：工具声明非法（命名、风险值、Schema 或数量超限）时整个注册表被拒绝；`execute` 结果必须是 JSON 可序列化值且默认 10 秒超时；页面刷新后注册表随会话 ID 重建，旧调用自动失效。协议 Schema 见 `src/protocol/page-tools.ts`；完整的接入指南（字段详解、风险策略、限制、错误码、完整示例）见[页面工具开发指南](https://jamiesun.github.io/lens/page-tools-guide.html)。
 
 完整目标、非目标和能力方向见 [`docs/roadmap.md`](docs/roadmap.md)。
+
+## 文档
+
+完整的开发者文档（架构说明、页面工具开发指南、路线图）发布在 <https://jamiesun.github.io/lens/>，源文件在本仓库的 [`docs/`](docs/) 目录，用 [mdBook](https://rust-lang.github.io/mdBook/) 构建，随 `main` 分支变更自动发布。本地预览：
+
+```sh
+mdbook serve
+```
 
 ## 开发
 

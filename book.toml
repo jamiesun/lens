@@ -1,0 +1,20 @@
+[book]
+title = "Lens 开发者文档"
+description = "Lens 浏览器前端 Agent Runtime 的架构说明、工程约束与业务前端接入指南"
+authors = ["jamiesun"]
+language = "zh"
+src = "docs"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/jamiesun/lens"
+edit-url-template = "https://github.com/jamiesun/lens/edit/main/{path}"
+site-url = "/lens/"
+
+[output.html.search]
+enable = true
