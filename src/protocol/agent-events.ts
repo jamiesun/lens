@@ -61,6 +61,8 @@ export const AgentEventSchema = z.discriminatedUnion('kind', [
         'page.form.fill',
         'page.click',
         'page.screenshot',
+        'page.tools.list',
+        'page.tools.call',
       ]),
       status: z.enum(['started', 'completed', 'failed']),
       detail: z.string().max(300),

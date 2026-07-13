@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Broken Tools Page</title>
+  </head>
+  <body>
+    <h1>Broken Tools Page</h1>
+    <p>本页声明了非法的 Lens Page Tools 注册表：工具名不符合命名规则。</p>
+    <p id="probe" data-executed="false">No tool has run.</p>
+
+    <script>
+      window.__lensPageToolsV1 = {
+        version: 1,
+        sessionId: 'broken-session',
+        tools: new Map([
+          [
+            'Bad Name!',
+            {
+              name: 'Bad Name!',
+              description: '名字非法的工具，注册表应整体被拒绝。',
+              risk: 'observe',
+              execute: () => {
+                document.getElementById('probe').dataset.executed = 'true';
+                return { ran: true };
+              },
+            },
+          ],
+        ]),
+      };
+    </script>
+  </body>
+</html>

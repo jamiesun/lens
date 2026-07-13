@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Inventory Console</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 2rem;
+        max-width: 40rem;
+      }
+      h1 {
+        font-size: 1.4rem;
+      }
+      #note {
+        border: 1px solid #999;
+        padding: 0.5rem;
+        min-height: 1.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Inventory Console</h1>
+    <p>内部库存控制台演示页。本页通过 Lens Page Tools v1 注册结构化工具。</p>
+
+    <h2>货架便签</h2>
+    <p id="note" data-testid="shelf-note">（尚无便签）</p>
+
+    <h2>库存状态</h2>
+    <p id="purge-state" data-purged="false">Inventory intact.</p>
+
+    <form id="restock" autocomplete="off">
+      <label>
+        补货备注
+        <input type="text" name="restock-memo" />
+      </label>
+      <button type="button" id="refresh">刷新列表</button>
+    </form>
+
+    <script>
+      // 页面侧 Lens Page Tools v1 SDK（内联最小实现）。
+      (() => {
+        const registry = {
+          version: 1,
+          sessionId:
+            window.crypto && typeof window.crypto.randomUUID === 'function'
+              ? window.crypto.randomUUID()
+              : `session_${Date.now().toString(36)}`,
+          tools: new Map(),
+        };
+        Object.defineProperty(window, '__lensPageToolsV1', {
+          value: registry,
+          writable: false,
+          configurable: false,
+        });
+        window.registerLensTool = (tool) => {
+          registry.tools.set(tool.name, tool);
+        };
+      })();
+
+      const stock = [
+        { sku: 'GZ-1', item: 'Gizmo classic', qty: 7 },
+        { sku: 'GZ-2', item: 'Gizmo mk2', qty: 42 },
+        { sku: 'WD-9', item: 'Widget nine', qty: 130 },
+      ];
+
+      window.registerLensTool({
+        name: 'inventory_lookup',
+        description: '按关键字查询库存条目，返回匹配的 SKU、名称与数量。',
+        risk: 'observe',
+        inputSchema: {
+          type: 'object',
+          properties: { keyword: { type: 'string' } },
+          required: ['keyword'],
+          additionalProperties: false,
+        },
+        execute: (input) => {
+          const keyword = String(input.keyword ?? '').toLowerCase();
+          return {
+            matches: stock.filter((entry) =>
+              entry.item.toLowerCase().includes(keyword),
+            ),
+          };
+        },
+      });
+
+      window.registerLensTool({
+        name: 'set_shelf_note',
+        description: '在货架便签区写入一条备注（仅本地界面状态）。',
+        risk: 'local-write',
+        inputSchema: {
+          type: 'object',
+          properties: { note: { type: 'string' } },
+          required: ['note'],
+          additionalProperties: false,
+        },
+        execute: (input) => {
+          const note = String(input.note ?? '').slice(0, 200);
+          document.getElementById('note').textContent = note;
+          return { written: true, note };
+        },
+      });
+
+      window.registerLensTool({
+        name: 'purge_inventory',
+        description: '清空全部库存记录（不可恢复）。',
+        risk: 'destructive',
+        execute: () => {
+          stock.length = 0;
+          const state = document.getElementById('purge-state');
+          state.dataset.purged = 'true';
+          state.textContent = 'Inventory purged!';
+          return { purged: true };
+        },
+      });
+    </script>
+  </body>
+</html>

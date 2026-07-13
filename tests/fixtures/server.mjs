@@ -21,6 +21,8 @@ export function createFixtureServer() {
     const staticPages = new Set([
       '/customer-create.html',
       '/click-playground.html',
+      '/tools-console.html',
+      '/tools-invalid.html',
     ]);
     if (staticPages.has(requestUrl.pathname)) {
       response.writeHead(200, {
@@ -197,6 +199,86 @@ async function respondWithMockCompletion(request, response) {
                     function: {
                       name: 'page_screenshot',
                       arguments: JSON.stringify({ mode: 'full-page' }),
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+
+    const goalText =
+      typeof userMessage?.content === 'string' ? userMessage.content : '';
+    const offeredToolNames = Array.isArray(payload.tools)
+      ? payload.tools.map((tool) => tool?.function?.name).filter(Boolean)
+      : [];
+    const pageToolsScenario = ['PAGE_TOOLS_LOOKUP', 'PAGE_TOOLS_NOTE', 'PAGE_TOOLS_PURGE'].find(
+      (marker) => goalText.includes(marker),
+    );
+
+    if (pageToolsScenario) {
+      const scenarioTool = {
+        PAGE_TOOLS_LOOKUP: 'site_inventory_lookup',
+        PAGE_TOOLS_NOTE: 'site_set_shelf_note',
+        PAGE_TOOLS_PURGE: 'site_purge_inventory',
+      }[pageToolsScenario];
+      const scenarioArguments = {
+        PAGE_TOOLS_LOOKUP: { keyword: 'gizmo' },
+        PAGE_TOOLS_NOTE: { note: '到货后先质检' },
+        PAGE_TOOLS_PURGE: {},
+      }[pageToolsScenario];
+
+      if (hasToolResult) {
+        const toolMessage = messages.findLast(
+          (message) => message.role === 'tool',
+        );
+        const toolContent =
+          typeof toolMessage?.content === 'string' ? toolMessage.content : '';
+        const content =
+          pageToolsScenario === 'PAGE_TOOLS_LOOKUP'
+            ? `库存查询完成：${toolContent}`
+            : pageToolsScenario === 'PAGE_TOOLS_NOTE'
+              ? '已写入货架便签。'
+              : toolContent.includes('RISK_BLOCKED')
+                ? '清空操作被运行时拦截，库存保持不变。'
+                : '库存已清空。';
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ choices: [{ message: { content } }] }));
+        return;
+      }
+
+      // The purge scenario deliberately calls a tool that is not offered, to
+      // prove the runtime blocks hallucinated high-risk calls.
+      if (
+        pageToolsScenario !== 'PAGE_TOOLS_PURGE' &&
+        !offeredToolNames.includes(scenarioTool)
+      ) {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            choices: [{ message: { content: '页面工具不可用。' } }],
+          }),
+        );
+        return;
+      }
+
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [
+                  {
+                    id: `call_${pageToolsScenario.toLowerCase()}`,
+                    type: 'function',
+                    function: {
+                      name: scenarioTool,
+                      arguments: JSON.stringify(scenarioArguments),
                     },
                   },
                 ],

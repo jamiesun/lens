@@ -793,4 +793,248 @@ describe('runAgentGoal', () => {
     });
     expect(events.at(-1)).toEqual({ kind: 'done' });
   });
+
+  it('offers allowed page tools to the model and routes site_ calls', async () => {
+    const discover = vi.fn().mockResolvedValue({
+      status: 'ok',
+      sessionId: 'session-7',
+      tools: [
+        {
+          name: 'inventory_lookup',
+          description: 'Look up stock by keyword.',
+          risk: 'observe',
+          inputSchema: {
+            type: 'object',
+            properties: { keyword: { type: 'string' } },
+            required: ['keyword'],
+            additionalProperties: false,
+          },
+        },
+        {
+          name: 'purge_inventory',
+          description: 'Delete all stock.',
+          risk: 'destructive',
+        },
+      ],
+    });
+    const call = vi.fn().mockResolvedValue({
+      ok: true,
+      resultJson: '{"stock":[{"item":"Gizmo mk2","qty":42}]}',
+    });
+    const complete = vi
+      .fn()
+      .mockResolvedValueOnce({
+        content: null,
+        toolCalls: [
+          {
+            id: 'call_site',
+            name: 'site_inventory_lookup',
+            arguments: '{"keyword": "gizmo"}',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ content: '库存已查到。', toolCalls: [] });
+    const deps = dependencies({ complete, pageTools: { discover, call } });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('查库存', deps, (event) => events.push(event));
+
+    const offeredTools = complete.mock.calls[0]?.[0].tools as {
+      function: { name: string; description: string };
+    }[];
+    const offeredNames = offeredTools.map((tool) => tool.function.name);
+    expect(offeredNames).toContain('site_inventory_lookup');
+    expect(offeredNames).not.toContain('site_purge_inventory');
+    expect(
+      offeredTools.find(
+        (tool) => tool.function.name === 'site_inventory_lookup',
+      )?.function.description,
+    ).toBe('[page tool · risk: observe] Look up stock by keyword.');
+
+    expect(call).toHaveBeenCalledWith({
+      name: 'inventory_lookup',
+      argumentsJson: '{"keyword":"gizmo"}',
+      sessionId: 'session-7',
+    });
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.tools.list',
+      status: 'completed',
+      detail: '1/2 page tools available',
+    });
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.tools.call',
+      status: 'completed',
+      detail: 'inventory_lookup · 41 chars',
+    });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('refuses a hallucinated call to a risk-blocked page tool', async () => {
+    const call = vi.fn();
+    const deps = dependencies({
+      pageTools: {
+        discover: vi.fn().mockResolvedValue({
+          status: 'ok',
+          sessionId: 'session-7',
+          tools: [
+            {
+              name: 'purge_inventory',
+              description: 'Delete all stock.',
+              risk: 'destructive',
+            },
+          ],
+        }),
+        call,
+      },
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: null,
+          toolCalls: [
+            {
+              id: 'call_blocked',
+              name: 'site_purge_inventory',
+              arguments: '{}',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ content: '该操作被拦截。', toolCalls: [] }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('清空库存', deps, (event) => events.push(event));
+
+    expect(call).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.tools.call',
+      status: 'failed',
+      detail: 'Blocked by risk policy (destructive): purge_inventory',
+    });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('rejects non-object site tool arguments without calling the page', async () => {
+    const call = vi.fn();
+    const deps = dependencies({
+      pageTools: {
+        discover: vi.fn().mockResolvedValue({
+          status: 'ok',
+          sessionId: 'session-7',
+          tools: [
+            {
+              name: 'inventory_lookup',
+              description: 'Look up stock.',
+              risk: 'observe',
+            },
+          ],
+        }),
+        call,
+      },
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: null,
+          toolCalls: [
+            {
+              id: 'call_bad_args',
+              name: 'site_inventory_lookup',
+              arguments: '[1,2,3]',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ content: '参数无效。', toolCalls: [] }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('查库存', deps, (event) => events.push(event));
+
+    expect(call).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.tools.call',
+      status: 'failed',
+      detail: 'Invalid tool arguments from model',
+    });
+  });
+
+  it('continues with built-in tools when discovery is invalid', async () => {
+    const complete = vi
+      .fn()
+      .mockResolvedValue({ content: '页面工具不可用。', toolCalls: [] });
+    const deps = dependencies({
+      complete,
+      pageTools: {
+        discover: vi.fn().mockResolvedValue({
+          status: 'invalid',
+          detail: 'Duplicate tool name "inventory_lookup".',
+        }),
+        call: vi.fn(),
+      },
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('查库存', deps, (event) => events.push(event));
+
+    const offeredNames = (
+      complete.mock.calls[0]?.[0].tools as { function: { name: string } }[]
+    ).map((tool) => tool.function.name);
+    expect(offeredNames.every((name) => !name.startsWith('site_'))).toBe(true);
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.tools.list',
+      status: 'failed',
+      detail: 'Duplicate tool name "inventory_lookup".',
+    });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
+
+  it('surfaces stale-session failures from the page as failed tool events', async () => {
+    const deps = dependencies({
+      pageTools: {
+        discover: vi.fn().mockResolvedValue({
+          status: 'ok',
+          sessionId: 'session-7',
+          tools: [
+            {
+              name: 'inventory_lookup',
+              description: 'Look up stock.',
+              risk: 'observe',
+            },
+          ],
+        }),
+        call: vi.fn().mockResolvedValue({
+          ok: false,
+          code: 'STALE_TOOLS',
+          message: 'The page tools changed after discovery.',
+        }),
+      },
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: null,
+          toolCalls: [
+            {
+              id: 'call_stale',
+              name: 'site_inventory_lookup',
+              arguments: '{}',
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ content: '页面已刷新。', toolCalls: [] }),
+    });
+    const events: AgentEvent[] = [];
+
+    await runAgentGoal('查库存', deps, (event) => events.push(event));
+
+    expect(events).toContainEqual({
+      kind: 'tool',
+      tool: 'page.tools.call',
+      status: 'failed',
+      detail: 'STALE_TOOLS: The page tools changed after discovery.',
+    });
+    expect(events.at(-1)).toEqual({ kind: 'done' });
+  });
 });

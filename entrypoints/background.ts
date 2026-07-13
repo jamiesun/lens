@@ -1,6 +1,11 @@
 import { browser } from 'wxt/browser';
 import { readAgentSettings } from '../src/background/agent-settings';
 import { runAgentGoal } from '../src/background/agent-runtime';
+import {
+  callPageTool,
+  discoverPageTools,
+  type BoundMainWorldInvoke,
+} from '../src/background/page-tools-service';
 import { chatComplete } from '../src/background/model-client';
 import {
   handleRuntimeRequest,
@@ -273,6 +278,26 @@ export default defineBackground(() => {
           get: (key) => browser.storage.local.get(key),
         });
 
+        // Runs page-tool functions in the pinned tab's MAIN world. Reuses the
+        // pin check, so a tab or URL change aborts instead of touching
+        // another page. Permissions match ensurePageAgent (activeTab/host).
+        const invokeInPinnedMainWorld: BoundMainWorldInvoke = async (
+          func,
+          args,
+        ) => {
+          const tab = await getPinnedActiveTab();
+          if (typeof tab?.id !== 'number') {
+            throw new Error('The active page is not available for this run.');
+          }
+          const [injection] = await browser.scripting.executeScript({
+            target: { tabId: tab.id },
+            world: 'MAIN',
+            func: func as unknown as (...fnArgs: unknown[]) => unknown,
+            args: [...args],
+          });
+          return injection?.result;
+        };
+
         await runAgentGoal(
           runRequest.goal,
           {
@@ -281,6 +306,10 @@ export default defineBackground(() => {
             runFill,
             runClick,
             runScreenshot,
+            pageTools: {
+              discover: () => discoverPageTools(invokeInPinnedMainWorld),
+              call: (input) => callPageTool(invokeInPinnedMainWorld, input),
+            },
             complete: ({
               provider,
               apiKey,
